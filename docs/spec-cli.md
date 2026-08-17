@@ -28,6 +28,14 @@ secret-protector token revoke ROUTE TOKEN_NAME
 
 所有写命令必须先在内存副本中完成修改并校验整个候选配置，再通过同目录临时文件、`fsync` 和原子 rename 替换目标。失败时原文件保持不变。配置文件权限设置为 `0600`。
 
+## 服务行为
+
+- `serve` 即使在启动配置缺失或无效时也会启动 HTTP server，并通过 `WARN` 表明尚未就绪。
+- 启动配置可提供有效的 `server` 字段时使用该设置，否则使用 YAML 规格中的 server 默认值。
+- `GET /healthz` 和 `HEAD /healthz` 在存在有效路由快照时返回 `200`，否则返回 `503`。
+- 配置修复后，`serve` 通过同一热更新路径发布首个快照，无需重启进程。
+- 监听端口绑定失败等无法提供 HTTP 服务的错误仍使 `serve` 返回错误。
+
 ## 路由鉴权 flags
 
 ```text
