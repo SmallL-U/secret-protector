@@ -48,4 +48,6 @@ jobs:
           push: false
           tags: secret-protector:ci
       - name: Smoke test image
-        run: docker run --rm secret-protector:ci --help
+        run: |
+          docker run --rm secret-protector:ci --help
+          docker run --rm secret-protector:ci config init

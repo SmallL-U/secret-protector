@@ -2,35 +2,31 @@
 
 FROM golang:1.26-alpine AS build
 
-ARG GOPROXY=https://proxy.golang.org,direct
-
 RUN apk add --no-cache ca-certificates
 
 WORKDIR /src
 
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-    GOPROXY="${GOPROXY}" go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
-COPY cmd ./cmd
-COPY internal ./internal
+COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux GOPROXY="${GOPROXY}" go build \
+    CGO_ENABLED=0 go build \
     -trimpath \
     -ldflags="-s -w" \
     -o /out/secret-protector \
     ./cmd/secret-protector
 
-FROM scratch
+FROM alpine:3.24
 
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-COPY --from=build --chown=65532:65532 /out/secret-protector /usr/local/bin/secret-protector
+RUN apk add --no-cache ca-certificates
+
+COPY --from=build --chmod=0555 /out/secret-protector /usr/local/bin/secret-protector
 
 WORKDIR /config
-USER 65532:65532
 
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/secret-protector"]
-CMD ["serve"]
+CMD ["--config", "/config/config.yml", "serve"]

@@ -66,7 +66,7 @@ secret-protector token issue|list|revoke
 
 ## Docker
 
-镜像默认以非 root 用户执行 `secret-protector --config /config/config.yml serve`。先将配置放入单独目录，并把 `server.listen` 设置为 `0.0.0.0:8080`；上游地址需要能从容器内部访问。
+镜像基于 Alpine，默认以 root 用户执行 `secret-protector --config /config/config.yml serve`。先将配置放入单独目录，并把 `server.listen` 设置为 `0.0.0.0:8080`；上游地址需要能从容器内部访问。
 
 ```bash
 mkdir -p docker-config
@@ -78,13 +78,12 @@ make docker-build
 docker run --rm \
   --name secret-protector \
   --read-only \
-  --user "$(id -u):$(id -g)" \
   --publish 127.0.0.1:8080:8080 \
   --mount type=bind,src="$PWD/docker-config",dst=/config,readonly \
   secret-protector:local
 ```
 
-挂载整个配置目录可以让宿主机上的原子配置更新继续被容器内的热重载检测到。`--user` 让容器能够读取 CLI 以 `0600` 权限创建的配置文件。
+挂载整个配置目录可以让宿主机上的原子配置更新继续被容器内的热重载检测到。配置以只读方式挂载，容器内的 root 用户可以读取 CLI 以 `0600` 权限创建的文件。
 
 GitHub Actions 会在每次 push 和 pull request 中执行 `make verify`、race test，并构建和启动检查 Docker 镜像；当前不会向镜像仓库推送。
 
