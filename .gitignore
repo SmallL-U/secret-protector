@@ -1,5 +1,6 @@
 /bin/
 /dist/
+/.idea/
 /secret-protector
 /config.yml
 *.tmp
