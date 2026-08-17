@@ -1,0 +1,79 @@
+# Secret Protector
+
+Secret Protector 是一个用 Go 编写的小型反向代理：客户端只拿到代理签发的短 token，代理校验后再把真正的上游凭证注入请求。它支持 Query token、Bearer token 和 Basic Auth，并可让上游方式固定或自动跟随客户端方式。
+
+项目以 [`docs`](docs/README.md) 为权威规格，当前不使用数据库，所有配置保存在 YAML 中。
+
+## 快速开始
+
+环境要求：Go 1.26 或更高版本。
+
+```bash
+make build
+
+# 交互式初始化和管理（推荐）
+./bin/secret-protector --config config.yml manage
+
+# 或使用等价的参数式命令
+./bin/secret-protector --config config.yml config init
+
+./bin/secret-protector --config config.yml route add \
+  --name local-api \
+  --prefix /api \
+  --upstream-url http://127.0.0.1:9000 \
+  --auth-mode bearer \
+  --upstream-token 'real-upstream-secret' \
+  --strip-prefix
+
+./bin/secret-protector --config config.yml serve
+```
+
+`route add` 会输出一次自动生成的下游 token。假设它保存在 `DOWNSTREAM_TOKEN`：
+
+```bash
+# Bearer
+curl -H "Authorization: Bearer ${DOWNSTREAM_TOKEN}" http://127.0.0.1:8080/api/users
+
+# Query（默认参数名 token）
+curl "http://127.0.0.1:8080/api/users?token=${DOWNSTREAM_TOKEN}"
+
+# Basic：下游 token 放在密码位
+curl -u "client:${DOWNSTREAM_TOKEN}" http://127.0.0.1:8080/api/users
+```
+
+上例固定使用 Bearer 访问上游，因此三种下游请求都会被转换为上游 Bearer。若 `--auth-mode auto`，代理会跟随每次下游请求实际使用的方式。完整配置示例见 [`examples/config.yml`](examples/config.yml)。
+
+## 管理命令
+
+```text
+secret-protector serve
+secret-protector manage
+secret-protector config init|validate
+secret-protector route add|list|remove
+secret-protector token issue|list|revoke
+```
+
+查看某个命令的 flags：
+
+```bash
+./bin/secret-protector route add --help
+```
+
+CLI 的写操作先校验完整的内存副本，再以 `0600` 权限原子替换 YAML。服务运行时会轮询配置；新文件只有在严格解析、完整校验和路由构建全部成功后才会切换。无效更新会打印 `WARN` 并继续使用最后一个有效快照，启动时配置无效则直接拒绝启动。
+
+`manage` 使用 `huh` v2 表单：TTY 中提供可选择、可返回的终端界面并隐藏敏感输入；pipe 中自动退化为逐行提示。设置 `SECRET_PROTECTOR_ACCESSIBLE=1` 可强制启用适合屏幕阅读器的无重绘模式。
+
+## 开发
+
+```bash
+make verify
+```
+
+`make verify` 会执行格式化、单元/集成测试、`go vet` 和构建。
+
+## 安全提示
+
+- YAML 包含明文上游凭证和下游 token，请限制文件读取权限并避免提交真实配置。
+- token 列表只显示 SHA-256 短指纹；完整 token 仅在签发时输出一次。
+- 同一请求不要同时提交 Header 和 Query 凭证，歧义请求会被拒绝。
+- 建议只监听可信网络接口，并在跨主机使用时通过受信任的 TLS 入口暴露代理。

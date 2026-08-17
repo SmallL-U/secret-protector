@@ -1,0 +1,25 @@
+# Example only. Replace every value marked REPLACE_ME before use.
+version: 1
+server:
+  listen: 127.0.0.1:8080
+  reload_interval: 2s
+  read_header_timeout: 10s
+  idle_timeout: 60s
+  shutdown_timeout: 10s
+routes:
+  - name: local-api
+    path_prefix: /api
+    upstream:
+      url: http://127.0.0.1:9000
+      strip_prefix: true
+      auth:
+        mode: auto
+        token: REPLACE_ME_UPSTREAM_SECRET
+        username: service-user
+    downstream:
+      query_params:
+        - token
+        - api_key
+      tokens:
+        - name: local-client
+          value: sp_REPLACE_ME_WITH_CLI_ISSUED_TOKEN
