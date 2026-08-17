@@ -64,6 +64,30 @@ CLI 的写操作先校验完整的内存副本，再以 `0600` 权限原子替�
 
 `manage` 使用 `huh` v2 表单：TTY 中提供可选择、可返回的终端界面并隐藏敏感输入；pipe 中自动退化为逐行提示。设置 `SECRET_PROTECTOR_ACCESSIBLE=1` 可强制启用适合屏幕阅读器的无重绘模式。
 
+## Docker
+
+镜像默认以非 root 用户执行 `secret-protector --config /config/config.yml serve`。先将配置放入单独目录，并把 `server.listen` 设置为 `0.0.0.0:8080`；上游地址需要能从容器内部访问。
+
+```bash
+mkdir -p docker-config
+cp examples/config.yml docker-config/config.yml
+
+# 编辑 docker-config/config.yml，替换示例凭证并修改监听地址
+make docker-build
+
+docker run --rm \
+  --name secret-protector \
+  --read-only \
+  --user "$(id -u):$(id -g)" \
+  --publish 127.0.0.1:8080:8080 \
+  --mount type=bind,src="$PWD/docker-config",dst=/config,readonly \
+  secret-protector:local
+```
+
+挂载整个配置目录可以让宿主机上的原子配置更新继续被容器内的热重载检测到。`--user` 让容器能够读取 CLI 以 `0600` 权限创建的配置文件。
+
+GitHub Actions 会在每次 push 和 pull request 中执行 `make verify`、race test，并构建和启动检查 Docker 镜像；当前不会向镜像仓库推送。
+
 ## 开发
 
 ```bash
