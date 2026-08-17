@@ -28,7 +28,9 @@ const (
 type Config struct {
 	Version int          `yaml:"version"`
 	Server  ServerConfig `yaml:"server,omitempty"`
-	Routes  []Route      `yaml:"routes,omitempty"`
+	Routes  []Route      `yaml:"routes"`
+
+	source []byte
 }
 
 type ServerConfig struct {
@@ -136,6 +138,7 @@ func decode(data []byte) (*Config, error) {
 	if !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	raw.source = append([]byte(nil), data...)
 
 	return &raw, nil
 }
@@ -160,6 +163,7 @@ func Clone(input *Config) *Config {
 	}
 
 	clone := *input
+	clone.source = append([]byte(nil), input.source...)
 	clone.Routes = make([]Route, len(input.Routes))
 	for i := range input.Routes {
 		clone.Routes[i] = input.Routes[i]

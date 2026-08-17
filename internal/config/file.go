@@ -4,11 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"gopkg.in/yaml.v3"
 )
-
-const generatedHeader = "# Managed by secret-protector. This file contains secrets; keep mode 0600.\n"
 
 func SaveAtomic(filename string, cfg *Config) error {
 	prepared, err := Prepare(cfg)
@@ -16,11 +12,10 @@ func SaveAtomic(filename string, cfg *Config) error {
 		return err
 	}
 
-	data, err := yaml.Marshal(prepared)
+	data, err := marshalConfig(prepared)
 	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
+		return err
 	}
-	data = append([]byte(generatedHeader), data...)
 
 	return writeAtomic(filename, data)
 }

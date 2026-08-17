@@ -1,23 +1,44 @@
-# Example only. Replace every value marked REPLACE_ME before use.
-version: 1
+# Secret Protector example configuration.
+# This file contains secrets. Replace every REPLACE_ME value and keep file mode 0600.
+# The YAML may be edited directly; management commands preserve comments on retained entries.
+version: 1 # Configuration schema version; currently only 1 is supported.
+
+# HTTP server settings. Changes to this section require a process restart.
 server:
+  # TCP address exposed to downstream clients. Use 0.0.0.0:8080 in a container.
   listen: 127.0.0.1:8080
+  # Polling interval for hot-reloadable route changes.
   reload_interval: 2s
+  # Maximum time allowed for reading request headers.
   read_header_timeout: 10s
+  # Maximum keep-alive idle time.
   idle_timeout: 60s
+  # Maximum graceful shutdown time.
   shutdown_timeout: 10s
+
+# Requests select a route by downstream token; the request path is forwarded unchanged.
 routes:
+  # Route names must be unique.
   - name: local-api
     upstream:
+      # Base URL of the protected upstream service. Only http and https are accepted.
       url: http://127.0.0.1:9000
       auth:
+        # auto follows the downstream auth form. Other modes: bearer, query, basic.
         mode: auto
+        # Required by auto, bearer, and query modes.
         token: REPLACE_ME_UPSTREAM_SECRET
+        # Optional in auto mode; the token is used as the Basic password when password is absent.
         username: service-user
+        # Optional auth fields:
+        # password: REPLACE_ME_BASIC_PASSWORD # Required by basic mode.
+        # query_param: api_key                # Query key used by query/auto mode.
     downstream:
+      # Query parameter names accepted in addition to Bearer and Basic auth.
       query_params:
         - token
         - api_key
+      # Each value must be globally unique. Generate values with the CLI; do not invent weak tokens.
       tokens:
         - name: local-client
           value: sp_REPLACE_ME_WITH_CLI_ISSUED_TOKEN

@@ -26,7 +26,7 @@ secret-protector token revoke ROUTE TOKEN_NAME
 - `token list` 只显示 token 名称和 SHA-256 短指纹。
 - `token revoke` 按名称删除 token。
 
-所有写命令必须先在内存副本中完成修改并校验整个候选配置，再通过同目录临时文件、`fsync` 和原子 rename 替换目标。失败时原文件保持不变。配置文件权限设置为 `0600`。
+所有写命令必须先在内存副本中完成修改并校验整个候选配置，再通过同目录临时文件、`fsync` 和原子 rename 替换目标。失败时原文件保持不变。配置文件权限设置为 `0600`。写回时必须保留未删除配置项的 YAML 注释、字段顺序和展示样式。
 
 ## 服务行为
 

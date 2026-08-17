@@ -171,6 +171,156 @@ func TestPrepareRejectsInvalidRoutes(t *testing.T) {
 	}
 }
 
+func TestSaveAtomicWritesDocumentedYAML(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "config.yml")
+	if err := SaveAtomic(filename, New()); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, expected := range []string{
+		"# Secret Protector configuration.",
+		"# TCP address for downstream clients.",
+		"# How often the configuration file is checked for route changes.",
+		"# Proxy routes. An empty list keeps the proxy unready.",
+		"#   - name: example",
+		"routes: []",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("generated config does not contain %q:\n%s", expected, text)
+		}
+	}
+	if !strings.Contains(text, "\n  listen: 127.0.0.1:8080\n") {
+		t.Fatalf("generated config does not use two-space indentation:\n%s", text)
+	}
+
+	if err := UpdateFile(filename, func(*Config) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := strings.Count(string(data), "# Secret Protector configuration."); count != 1 {
+		t.Fatalf("generated header count = %d, want 1:\n%s", count, data)
+	}
+	if err := UpdateFile(filename, func(next *Config) error {
+		next.Routes = append(next.Routes, validConfig().Routes[0])
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "\nroutes:\n  - name: example\n") {
+		t.Fatalf("first route was not expanded as readable block YAML:\n%s", data)
+	}
+	if count := strings.Count(string(data), "# Proxy routes."); count != 1 {
+		t.Fatalf("routes comment count = %d, want 1:\n%s", count, data)
+	}
+	if _, _, err := Load(filename); err != nil {
+		t.Fatalf("generated config is invalid: %v", err)
+	}
+}
+
+func TestUpdateFilePreservesManualYAMLCommentsAndPresentation(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "config.yml")
+	manual := `# Operator-owned configuration. Do not replace this header.
+routes: # Route collection stays first.
+  # Keep this route comment.
+  - downstream:
+      query_params: ["token"] # Keep flow style.
+      tokens:
+        - name: "legacy"
+          value: "legacy-downstream-secret"
+        # Primary client comment.
+        - value: "downstream-secret" # Keep token value comment.
+          name: "client"
+    name: "example" # Keep route name comment.
+    upstream:
+      auth:
+        token: "upstream-secret" # Rotate this manually.
+        mode: "auto"
+      url: "https://example.test"
+version: 1 # Keep schema comment.
+server:
+  listen: "127.0.0.1:8080" # Keep bind comment.
+  reload_interval: "2s"
+  read_header_timeout: "10s"
+  idle_timeout: "60s"
+  shutdown_timeout: "10s"
+`
+	if err := os.WriteFile(filename, []byte(manual), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := UpdateFile(filename, func(next *Config) error {
+		tokens := next.Routes[0].Downstream.Tokens
+		next.Routes[0].Downstream.Tokens = append(tokens[1:], AccessToken{
+			Name:  "automation",
+			Value: "new-downstream-secret",
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, expected := range []string{
+		"# Operator-owned configuration. Do not replace this header.",
+		"# Keep this route comment.",
+		`query_params: ["token"] # Keep flow style.`,
+		"# Primary client comment.",
+		`value: "downstream-secret" # Keep token value comment.`,
+		`name: "example" # Keep route name comment.`,
+		`token: "upstream-secret" # Rotate this manually.`,
+		`listen: "127.0.0.1:8080" # Keep bind comment.`,
+		"- name: automation",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("updated config does not contain %q:\n%s", expected, text)
+		}
+	}
+	if strings.Contains(text, "# Secret Protector configuration.") {
+		t.Fatalf("update injected a generated header into a manual file:\n%s", text)
+	}
+	if strings.Contains(text, "legacy-downstream-secret") {
+		t.Fatalf("update kept a removed token:\n%s", text)
+	}
+
+	routesIndex := strings.Index(text, "routes:")
+	versionIndex := strings.Index(text, "version:")
+	serverIndex := strings.Index(text, "server:")
+	if routesIndex < 0 || versionIndex < routesIndex || serverIndex < versionIndex {
+		t.Fatalf("top-level field order changed:\n%s", text)
+	}
+	downstreamIndex := strings.Index(text, "\n  - downstream:")
+	nameIndex := strings.Index(text, "\n    name:")
+	upstreamIndex := strings.Index(text, "\n    upstream:")
+	if downstreamIndex < 0 || nameIndex < downstreamIndex || upstreamIndex < nameIndex {
+		t.Fatalf("route field order changed:\n%s", text)
+	}
+
+	cfg, _, err := Load(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Routes[0].Downstream.Tokens) != 2 {
+		t.Fatalf("token count = %d, want 2", len(cfg.Routes[0].Downstream.Tokens))
+	}
+}
+
 func TestSaveAtomicUsesPrivatePermissionsAndPreservesValidFileOnFailure(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "nested", "config.yml")
 	if err := SaveAtomic(filename, validConfig()); err != nil {

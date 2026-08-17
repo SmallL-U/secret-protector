@@ -11,7 +11,7 @@ docker-build:
 	docker build --build-arg "GOPROXY=$(GOPROXY)" --tag $(IMAGE) .
 
 fmt:
-	gofmt -w $$(rg --files -g '*.go')
+	go fmt ./...
 
 test:
 	go test ./...
