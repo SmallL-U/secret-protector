@@ -26,6 +26,9 @@ make build
   --strip-prefix
 
 ./bin/secret-protector --config config.yml serve
+
+# 有效配置已发布时为 200，否则为 503
+curl -i http://127.0.0.1:8080/healthz
 ```
 
 `route add` 会输出一次自动生成的下游 token。假设它保存在 `DOWNSTREAM_TOKEN`：
@@ -59,7 +62,7 @@ secret-protector token issue|list|revoke
 ./bin/secret-protector route add --help
 ```
 
-CLI 的写操作先校验完整的内存副本，再以 `0600` 权限原子替换 YAML。服务运行时会轮询配置；新文件只有在严格解析、完整校验和路由构建全部成功后才会切换。无效更新会打印 `WARN` 并继续使用最后一个有效快照，启动时配置无效则直接拒绝启动。
+CLI 的写操作先校验完整的内存副本，再以 `0600` 权限原子替换 YAML。服务运行时会轮询配置；新文件只有在严格解析、完整校验和路由构建全部成功后才会切换。无效更新会打印 `WARN` 并继续使用最后一个有效快照。启动配置缺失或无效时服务保持运行，`/healthz` 返回 `503`；配置修复并成功发布后自动恢复为 `200`。监听地址无法绑定等进程级错误仍会退出。
 
 `manage` 使用 `huh` v2 表单：TTY 中提供可选择、可返回的终端界面并隐藏敏感输入；pipe 中自动退化为逐行提示。设置 `SECRET_PROTECTOR_ACCESSIBLE=1` 可强制启用适合屏幕阅读器的无重绘模式。
 
