@@ -41,11 +41,9 @@ func TestCobraManagementWorkflow(t *testing.T) {
 		"--config", filename,
 		"route", "add",
 		"--name", "example",
-		"--prefix", "/api",
 		"--upstream-url", "https://example.test/base?private=upstream-query-secret",
 		"--auth-mode", "bearer",
 		"--upstream-token", "upstream-secret",
-		"--strip-prefix",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -61,6 +59,9 @@ func TestCobraManagementWorkflow(t *testing.T) {
 	output, err = executeCommand("--config", filename, "route", "list")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if strings.Contains(output, "PREFIX") {
+		t.Fatalf("route list still contains a path prefix column: %s", output)
 	}
 	for _, secret := range []string{"upstream-secret", "upstream-query-secret", firstToken} {
 		if strings.Contains(output, secret) {
@@ -113,18 +114,16 @@ func TestCobraManagementWorkflow(t *testing.T) {
 func TestInteractiveManagementWorkflow(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "config.yml")
 	input := strings.Join([]string{
-		"",     // create missing config: yes
-		"",     // default listen address
-		"2",    // add route
-		"api",  // route name
-		"/api", // path prefix
+		"",    // create missing config: yes
+		"",    // default listen address
+		"2",   // add route
+		"api", // route name
 		"https://example.test",
 		"",                // default auto auth
 		"upstream-secret", // upstream token
 		"",                // follow downstream query parameter
 		"service-user",    // upstream Basic username
 		"",                // use token as Basic password
-		"y",               // strip prefix
 		"",                // default downstream query parameter
 		"",                // default initial token name
 		"4",               // issue token
@@ -170,7 +169,7 @@ func TestInteractiveManagementWorkflow(t *testing.T) {
 	if route.Upstream.Auth.Username != "service-user" || route.Upstream.Auth.Password != "" {
 		t.Fatalf("interactive Basic fallback config = %#v", route.Upstream.Auth)
 	}
-	if !route.Upstream.StripPrefix || len(route.Downstream.Tokens) != 1 || route.Downstream.Tokens[0].Name != "default" {
+	if len(route.Downstream.Tokens) != 1 || route.Downstream.Tokens[0].Name != "default" {
 		t.Fatalf("interactive route config = %#v", route)
 	}
 
@@ -203,11 +202,9 @@ func TestInvalidInteractiveUpdateReturnsToMenuAndKeepsFile(t *testing.T) {
 	input := strings.Join([]string{
 		"2",
 		"broken",
-		"/broken/", // invalid trailing slash
-		"https://example.test",
+		"ftp://example.test",
 		"bearer",
 		"must-not-be-printed",
-		"", // do not strip
 		"", // default query parameter
 		"", // default token name
 		"0",
@@ -256,7 +253,6 @@ func TestInvalidCLIUpdateLeavesConfigUnchanged(t *testing.T) {
 		"--config", filename,
 		"route", "add",
 		"--name", "broken",
-		"--prefix", "/broken",
 		"--upstream-url", "https://example.test",
 	)
 	if err == nil {
@@ -287,9 +283,8 @@ func TestServeStartsUnreadyAndRecoversAfterValidConfig(t *testing.T) {
 		"  shutdown_timeout: 1s\n" +
 		"routes:\n" +
 		"  - name: api\n" +
-		"    path_prefix: /api/\n" +
 		"    upstream:\n" +
-		"      url: " + upstream.URL + "\n" +
+		"      url: ftp://example.test\n" +
 		"      auth:\n" +
 		"        mode: bearer\n" +
 		"        token: startup-secret-must-not-appear\n")
@@ -327,8 +322,7 @@ func TestServeStartsUnreadyAndRecoversAfterValidConfig(t *testing.T) {
 	cfg.Server.ShutdownTimeout = "1s"
 	cfg.Routes = []config.Route{
 		{
-			Name:       "api",
-			PathPrefix: "/api",
+			Name: "api",
 			Upstream: config.UpstreamConfig{
 				URL: upstream.URL,
 				Auth: config.UpstreamAuth{
@@ -382,8 +376,7 @@ func TestServeReloadsValidFileAndKeepsSnapshotAfterInvalidFile(t *testing.T) {
 	cfg.Server.ShutdownTimeout = "1s"
 	cfg.Routes = []config.Route{
 		{
-			Name:       "api",
-			PathPrefix: "/api",
+			Name: "api",
 			Upstream: config.UpstreamConfig{
 				URL: upstream.URL,
 				Auth: config.UpstreamAuth{
@@ -513,7 +506,7 @@ func executeCommandWithInput(input string, args ...string) (string, error) {
 
 func requestProxy(t *testing.T, listenAddress string) {
 	t.Helper()
-	request, err := http.NewRequest(http.MethodGet, "http://"+listenAddress+"/api", nil)
+	request, err := http.NewRequest(http.MethodGet, "http://"+listenAddress+"/client/selected/path", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

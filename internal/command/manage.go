@@ -195,7 +195,6 @@ func (manager *interactiveManager) addRoute() error {
 	options := routeAddOptions{authMode: "auto"}
 	if err := manager.runForm(
 		requiredInput("Route name", &options.name),
-		requiredInput("Path prefix", &options.prefix),
 		requiredInput("Upstream URL", &options.upstreamURL),
 		manager.choiceField("Upstream auth mode", &options.authMode,
 			formOption{label: "Follow downstream automatically", value: "auto"},
@@ -213,7 +212,6 @@ func (manager *interactiveManager) addRoute() error {
 	queryParams := "token"
 	options.tokenName = "default"
 	if err := manager.runForm(
-		huh.NewConfirm().Title("Strip route prefix?").Value(&options.stripPrefix),
 		requiredInput("Downstream query parameters (comma-separated)", &queryParams),
 		requiredInput("Initial downstream token name", &options.tokenName),
 	); err != nil {

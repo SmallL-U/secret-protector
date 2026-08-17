@@ -18,7 +18,6 @@ func TestParseAppliesDefaultsAndNormalizesFollow(t *testing.T) {
 version: 1
 routes:
   - name: example
-    path_prefix: /api
     upstream:
       url: https://example.test
       auth:
@@ -55,6 +54,14 @@ func TestParseRejectsUnknownFieldsAndMultipleDocuments(t *testing.T) {
 			data: "version: 1\nunknown: true\n",
 		},
 		{
+			name: "removed path prefix",
+			data: "version: 1\nroutes:\n  - name: example\n    path_prefix: /api\n",
+		},
+		{
+			name: "removed strip prefix",
+			data: "version: 1\nroutes:\n  - name: example\n    upstream:\n      strip_prefix: true\n",
+		},
+		{
 			name: "multiple documents",
 			data: "version: 1\n---\nversion: 1\n",
 		},
@@ -77,7 +84,6 @@ server:
   reload_interval: 5ms
 routes:
   - name: broken
-    path_prefix: /api/
 `)
 
 	if _, err := Parse(data); err == nil {
@@ -104,7 +110,7 @@ routes:
 
 func TestLoadReturnsCandidateDataWhenValidationFails(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "config.yml")
-	data := []byte("version: 1\nroutes:\n  - name: broken\n    path_prefix: /api/\n")
+	data := []byte("version: 1\nroutes:\n  - name: broken\n")
 	if err := os.WriteFile(filename, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -127,12 +133,6 @@ func TestPrepareRejectsInvalidRoutes(t *testing.T) {
 		mutate func(*Config)
 	}{
 		{
-			name: "unnormalized prefix",
-			mutate: func(cfg *Config) {
-				cfg.Routes[0].PathPrefix = "/api/"
-			},
-		},
-		{
 			name: "unsupported upstream scheme",
 			mutate: func(cfg *Config) {
 				cfg.Routes[0].Upstream.URL = "ftp://example.test"
@@ -148,6 +148,14 @@ func TestPrepareRejectsInvalidRoutes(t *testing.T) {
 			name: "duplicate downstream token",
 			mutate: func(cfg *Config) {
 				cfg.Routes[0].Downstream.Tokens = append(cfg.Routes[0].Downstream.Tokens, cfg.Routes[0].Downstream.Tokens[0])
+			},
+		},
+		{
+			name: "duplicate downstream token across routes",
+			mutate: func(cfg *Config) {
+				duplicate := cfg.Routes[0]
+				duplicate.Name = "other"
+				cfg.Routes = append(cfg.Routes, duplicate)
 			},
 		},
 	}
@@ -251,8 +259,7 @@ func validConfig() *Config {
 	cfg := New()
 	cfg.Routes = []Route{
 		{
-			Name:       "example",
-			PathPrefix: "/api",
+			Name: "example",
 			Upstream: UpstreamConfig{
 				URL: "https://example.test",
 				Auth: UpstreamAuth{

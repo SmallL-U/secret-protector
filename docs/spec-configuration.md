@@ -14,10 +14,8 @@ server:
   shutdown_timeout: 10s
 routes:
   - name: example
-    path_prefix: /example
     upstream:
       url: https://api.example.com/v1
-      strip_prefix: true
       auth:
         mode: auto
         token: replace-with-real-upstream-secret
@@ -41,7 +39,7 @@ routes:
 | --- | --- | --- |
 | `version` | 是 | 当前只能为 `1` |
 | `server` | 否 | 缺省字段使用下表默认值 |
-| `routes` | 否 | 可为空；路由名称和路径前缀必须各自唯一 |
+| `routes` | 否 | 可为空；路由名称必须唯一，所有下游 token 值必须全局唯一 |
 
 ### `server`
 
@@ -58,7 +56,6 @@ routes:
 | 字段 | 必填 | 约束 |
 | --- | --- | --- |
 | `name` | 是 | 非空，在配置中唯一 |
-| `path_prefix` | 是 | 规范绝对路径；必须以 `/` 开头；除根路径外不得以 `/` 结尾 |
 | `upstream` | 是 | 见下表 |
 | `downstream` | 是 | 见下表 |
 
@@ -67,7 +64,6 @@ routes:
 | 字段 | 必填 | 约束 |
 | --- | --- | --- |
 | `url` | 是 | 绝对 `http`/`https` URL，不允许 userinfo 和 fragment |
-| `strip_prefix` | 否 | 默认 `false` |
 | `auth.mode` | 否 | `auto`（默认）、`follow`、`bearer`、`query`、`basic` |
 | `auth.token` | 视 mode | `auto`、`bearer`、`query` 必填 |
 | `auth.username` | 视 mode | `basic` 必填；`auto` 可选 |
@@ -79,9 +75,11 @@ routes:
 | 字段 | 默认值/约束 |
 | --- | --- |
 | `query_params` | 默认 `[token]`；每项非空且不得重复 |
-| `tokens` | 可为空；每项的 `name` 和 `value` 非空，同一路由内名称和值各自唯一 |
+| `tokens` | 可为空；每项的 `name` 和 `value` 非空，名称在同一路由内唯一，值在所有路由间全局唯一 |
 
-空 token 列表会让路由拒绝所有客户端，但仍是合法配置，便于紧急吊销。
+下游 token 用于选择路由，请求 path 不参与路由选择。空 token 列表会让路由拒绝所有客户端，但仍是合法配置，便于紧急吊销。`/healthz` 始终由代理保留，不能转发给任何路由。
+
+配置不提供路径匹配或路径剥离字段；`path_prefix` 和 `strip_prefix` 会作为未知字段被拒绝。
 
 ## 运行时可变性
 

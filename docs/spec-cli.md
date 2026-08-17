@@ -8,7 +8,7 @@ secret-protector manage
 secret-protector config init [--listen ADDRESS] [--force]
 secret-protector config validate
 secret-protector route list
-secret-protector route add --name NAME --prefix PATH --upstream-url URL [auth flags]
+secret-protector route add --name NAME --upstream-url URL [auth flags]
 secret-protector route remove NAME
 secret-protector token issue ROUTE --name NAME
 secret-protector token list ROUTE
@@ -32,7 +32,8 @@ secret-protector token revoke ROUTE TOKEN_NAME
 
 - `serve` 即使在启动配置缺失或无效时也会启动 HTTP server，并通过 `WARN` 表明尚未就绪。
 - 启动配置可提供有效的 `server` 字段时使用该设置，否则使用 YAML 规格中的 server 默认值。
-- `GET /healthz` 和 `HEAD /healthz` 在存在有效路由快照时返回 `200`，否则返回 `503`。
+- `GET /healthz` 和 `HEAD /healthz` 在存在有效路由快照时返回 `200`，否则返回 `503`；该 path 由代理保留，不能转发到上游。
+- 普通请求由下游 token 选择路由，并将下游提供的 path 原样转发。
 - 配置修复后，`serve` 通过同一热更新路径发布首个快照，无需重启进程。
 - 监听端口绑定失败等无法提供 HTTP 服务的错误仍使 `serve` 返回错误。
 
@@ -46,7 +47,6 @@ secret-protector token revoke ROUTE TOKEN_NAME
 --query-param NAME
 --downstream-query-param NAME   # 可重复
 --token-name NAME               # route add 自动签发的下游 token 名称
---strip-prefix
 ```
 
 缺少当前 mode 必需的上游字段时，候选配置校验失败且文件不变。

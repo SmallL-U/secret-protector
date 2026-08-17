@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -42,15 +41,13 @@ type ServerConfig struct {
 
 type Route struct {
 	Name       string           `yaml:"name"`
-	PathPrefix string           `yaml:"path_prefix"`
 	Upstream   UpstreamConfig   `yaml:"upstream"`
 	Downstream DownstreamConfig `yaml:"downstream"`
 }
 
 type UpstreamConfig struct {
-	URL         string       `yaml:"url"`
-	StripPrefix bool         `yaml:"strip_prefix,omitempty"`
-	Auth        UpstreamAuth `yaml:"auth"`
+	URL  string       `yaml:"url"`
+	Auth UpstreamAuth `yaml:"auth"`
 }
 
 type UpstreamAuth struct {
@@ -236,7 +233,7 @@ func validate(cfg *Config) error {
 	}
 
 	names := make(map[string]struct{}, len(cfg.Routes))
-	prefixes := make(map[string]struct{}, len(cfg.Routes))
+	tokenValues := make(map[string]struct{})
 	for i := range cfg.Routes {
 		route := &cfg.Routes[i]
 		if err := validateRoute(i, route); err != nil {
@@ -245,11 +242,14 @@ func validate(cfg *Config) error {
 		if _, exists := names[route.Name]; exists {
 			return fmt.Errorf("routes[%d].name is duplicated", i)
 		}
-		if _, exists := prefixes[route.PathPrefix]; exists {
-			return fmt.Errorf("routes[%d].path_prefix is duplicated", i)
-		}
 		names[route.Name] = struct{}{}
-		prefixes[route.PathPrefix] = struct{}{}
+
+		for j, token := range route.Downstream.Tokens {
+			if _, exists := tokenValues[token.Value]; exists {
+				return fmt.Errorf("routes[%d].downstream.tokens[%d].value is duplicated across routes", i, j)
+			}
+			tokenValues[token.Value] = struct{}{}
+		}
 	}
 
 	return nil
@@ -289,28 +289,11 @@ func validateRoute(index int, route *Route) error {
 	if strings.TrimSpace(route.Name) == "" {
 		return fmt.Errorf("%s.name must not be empty", field)
 	}
-	if err := validatePathPrefix(route.PathPrefix); err != nil {
-		return fmt.Errorf("%s.path_prefix %w", field, err)
-	}
 	if err := validateUpstream(route.Upstream); err != nil {
 		return fmt.Errorf("%s.upstream %w", field, err)
 	}
 	if err := validateDownstream(route.Downstream); err != nil {
 		return fmt.Errorf("%s.downstream %w", field, err)
-	}
-
-	return nil
-}
-
-func validatePathPrefix(prefix string) error {
-	if prefix == "" || !strings.HasPrefix(prefix, "/") {
-		return errors.New("must be an absolute path")
-	}
-	if path.Clean(prefix) != prefix {
-		return errors.New("must be a normalized path without a trailing slash")
-	}
-	if strings.ContainsAny(prefix, "?#") {
-		return errors.New("must not contain a query or fragment")
 	}
 
 	return nil

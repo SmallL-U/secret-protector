@@ -19,11 +19,9 @@ make build
 
 ./bin/secret-protector --config config.yml route add \
   --name local-api \
-  --prefix /api \
   --upstream-url http://127.0.0.1:9000 \
   --auth-mode bearer \
-  --upstream-token 'real-upstream-secret' \
-  --strip-prefix
+  --upstream-token 'real-upstream-secret'
 
 ./bin/secret-protector --config config.yml serve
 
@@ -35,16 +33,16 @@ curl -i http://127.0.0.1:8080/healthz
 
 ```bash
 # Bearer
-curl -H "Authorization: Bearer ${DOWNSTREAM_TOKEN}" http://127.0.0.1:8080/api/users
+curl -H "Authorization: Bearer ${DOWNSTREAM_TOKEN}" http://127.0.0.1:8080/users
 
 # Query（默认参数名 token）
-curl "http://127.0.0.1:8080/api/users?token=${DOWNSTREAM_TOKEN}"
+curl "http://127.0.0.1:8080/users?token=${DOWNSTREAM_TOKEN}"
 
 # Basic：下游 token 放在密码位
-curl -u "client:${DOWNSTREAM_TOKEN}" http://127.0.0.1:8080/api/users
+curl -u "client:${DOWNSTREAM_TOKEN}" http://127.0.0.1:8080/users
 ```
 
-上例固定使用 Bearer 访问上游，因此三种下游请求都会被转换为上游 Bearer。若 `--auth-mode auto`，代理会跟随每次下游请求实际使用的方式。完整配置示例见 [`examples/config.yml`](examples/config.yml)。
+下游 token 决定请求使用哪条路由，请求 path 会原样转发并拼接到上游 URL 的基础路径；`/healthz` 为代理保留，不会转发。上例固定使用 Bearer 访问上游，因此三种下游请求都会被转换为上游 Bearer。若 `--auth-mode auto`，代理会跟随每次下游请求实际使用的方式。完整配置示例见 [`examples/config.yml`](examples/config.yml)。
 
 ## 管理命令
 

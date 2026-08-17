@@ -10,10 +10,43 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"secret-protector/internal/auth"
 	"secret-protector/internal/config"
 )
 
 const downstreamSecret = "client-secret"
+
+func TestNewRouterRejectsNilConfig(t *testing.T) {
+	router, err := NewRouter(nil, discardLogger())
+	if err == nil {
+		t.Fatal("NewRouter(nil) succeeded")
+	}
+	if router != nil {
+		t.Fatal("NewRouter(nil) returned a router")
+	}
+}
+
+func TestRouterDoesNotSelectDuplicateToken(t *testing.T) {
+	cfg := config.New()
+	cfg.Routes = []config.Route{
+		testRoute("first", "https://first.example", downstreamSecret, "first_token"),
+		testRoute("second", "https://second.example", downstreamSecret, "second_token"),
+	}
+	router, err := NewRouter(cfg, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matched := router.matchCredential(auth.Credential{Scheme: auth.SchemeBearer, Token: downstreamSecret}); matched != nil {
+		t.Fatalf("duplicate token selected route %q", matched.name)
+	}
+	if matched := router.matchCredential(auth.Credential{
+		Scheme:     auth.SchemeQuery,
+		Token:      downstreamSecret,
+		QueryParam: "first_token",
+	}); matched != nil {
+		t.Fatalf("duplicate token selected route %q for a route-specific query parameter", matched.name)
+	}
+}
 
 type observedRequest struct {
 	path          string
@@ -139,7 +172,6 @@ func TestRuntimeInjectsConfiguredAuthentication(t *testing.T) {
 			defer upstream.Close()
 
 			cfg := proxyConfig(upstream.URL+"/base", test.auth)
-			cfg.Routes[0].Upstream.StripPrefix = true
 			runtime, err := NewRuntime(cfg, discardLogger())
 			if err != nil {
 				t.Fatal(err)
@@ -153,7 +185,7 @@ func TestRuntimeInjectsConfiguredAuthentication(t *testing.T) {
 				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 			}
 			actual := <-observed
-			if actual.path != "/base/resource" {
+			if actual.path != "/base/api/resource" {
 				t.Fatalf("path = %q", actual.path)
 			}
 			if actual.host != strings.TrimPrefix(upstream.URL, "http://") {
@@ -174,7 +206,7 @@ func TestRuntimeInjectsConfiguredAuthentication(t *testing.T) {
 	}
 }
 
-func TestRouterUsesLongestSegmentPrefixAndStripsIt(t *testing.T) {
+func TestRouterSelectsRouteByDownstreamTokenAndPreservesPath(t *testing.T) {
 	api := httptest.NewServer(echoPathHandler("api"))
 	defer api.Close()
 	admin := httptest.NewServer(echoPathHandler("admin"))
@@ -182,30 +214,56 @@ func TestRouterUsesLongestSegmentPrefixAndStripsIt(t *testing.T) {
 
 	cfg := config.New()
 	cfg.Routes = []config.Route{
-		testRoute("api", "/api", api.URL, true),
-		testRoute("admin", "/api/admin", admin.URL, true),
+		testRoute("api", api.URL, "api-secret", "api_token"),
+		testRoute("admin", admin.URL, "admin-secret", "admin_token"),
 	}
 	runtime, err := NewRuntime(cfg, discardLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	request := httptest.NewRequest(http.MethodGet, "http://proxy.test/api/admin/users?token="+downstreamSecret, nil)
-	response := httptest.NewRecorder()
-	runtime.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || response.Body.String() != "admin:/users" {
-		t.Fatalf("response = %d %q", response.Code, response.Body.String())
+	tests := []struct {
+		name     string
+		prepare  func(*http.Request)
+		expected string
+	}{
+		{
+			name: "bearer selects api",
+			prepare: func(request *http.Request) {
+				request.Header.Set("Authorization", "Bearer api-secret")
+			},
+			expected: "api:/shared/users",
+		},
+		{
+			name: "query selects admin",
+			prepare: func(request *http.Request) {
+				request.URL.RawQuery = "admin_token=admin-secret"
+			},
+			expected: "admin:/shared/users",
+		},
 	}
 
-	request = httptest.NewRequest(http.MethodGet, "http://proxy.test/apix?token="+downstreamSecret, nil)
-	response = httptest.NewRecorder()
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://proxy.test/shared/users", nil)
+			test.prepare(request)
+			response := httptest.NewRecorder()
+			runtime.ServeHTTP(response, request)
+			if response.Code != http.StatusOK || response.Body.String() != test.expected {
+				t.Fatalf("response = %d %q", response.Code, response.Body.String())
+			}
+		})
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "http://proxy.test/shared/users?admin_token=api-secret", nil)
+	response := httptest.NewRecorder()
 	runtime.ServeHTTP(response, request)
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("segment boundary status = %d", response.Code)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong query parameter status = %d", response.Code)
 	}
 }
 
-func TestRouterPreservesEscapedPathWhenStrippingPrefix(t *testing.T) {
+func TestRouterPreservesEscapedDownstreamPath(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		_, _ = io.WriteString(writer, request.URL.EscapedPath())
 	}))
@@ -213,18 +271,41 @@ func TestRouterPreservesEscapedPathWhenStrippingPrefix(t *testing.T) {
 
 	cfg := config.New()
 	cfg.Routes = []config.Route{
-		testRoute("api", "/api", upstream.URL+"/base", true),
+		testRoute("api", upstream.URL+"/base", downstreamSecret, "token"),
 	}
 	runtime, err := NewRuntime(cfg, discardLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	request := httptest.NewRequest(http.MethodGet, "http://proxy.test/api/items/a%2Fb?token="+downstreamSecret, nil)
+	request := httptest.NewRequest(http.MethodGet, "http://proxy.test/items/a%2Fb?token="+downstreamSecret, nil)
 	response := httptest.NewRecorder()
 	runtime.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || response.Body.String() != "/base/items/a%2Fb" {
 		t.Fatalf("response = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestRuntimeReservesHealthPath(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	runtime, err := NewRuntime(proxyConfig(upstream.URL, config.UpstreamAuth{Mode: "bearer", Token: "upstream-token"}), discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://proxy.test/healthz?token="+downstreamSecret, nil)
+	response := httptest.NewRecorder()
+	runtime.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"ok"`) {
+		t.Fatalf("health response = %d %q", response.Code, response.Body.String())
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("upstream calls = %d, want 0", calls.Load())
 	}
 }
 
@@ -378,8 +459,7 @@ func proxyConfig(upstreamURL string, authConfig config.UpstreamAuth) *config.Con
 	cfg := config.New()
 	cfg.Routes = []config.Route{
 		{
-			Name:       "api",
-			PathPrefix: "/api",
+			Name: "api",
 			Upstream: config.UpstreamConfig{
 				URL:  upstreamURL,
 				Auth: authConfig,
@@ -396,22 +476,20 @@ func proxyConfig(upstreamURL string, authConfig config.UpstreamAuth) *config.Con
 	return cfg
 }
 
-func testRoute(name string, prefix string, upstreamURL string, strip bool) config.Route {
+func testRoute(name string, upstreamURL string, downstreamToken string, queryParam string) config.Route {
 	return config.Route{
-		Name:       name,
-		PathPrefix: prefix,
+		Name: name,
 		Upstream: config.UpstreamConfig{
-			URL:         upstreamURL,
-			StripPrefix: strip,
+			URL: upstreamURL,
 			Auth: config.UpstreamAuth{
 				Mode:  "bearer",
 				Token: "upstream-token",
 			},
 		},
 		Downstream: config.DownstreamConfig{
-			QueryParams: []string{"token"},
+			QueryParams: []string{queryParam},
 			Tokens: []config.AccessToken{
-				{Name: "client", Value: downstreamSecret},
+				{Name: "client", Value: downstreamToken},
 			},
 		},
 	}

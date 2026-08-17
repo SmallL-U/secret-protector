@@ -8,10 +8,8 @@ server:
   shutdown_timeout: 10s
 routes:
   - name: local-api
-    path_prefix: /api
     upstream:
       url: http://127.0.0.1:9000
-      strip_prefix: true
       auth:
         mode: auto
         token: REPLACE_ME_UPSTREAM_SECRET

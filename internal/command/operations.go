@@ -11,11 +11,11 @@ import (
 
 func writeRouteList(output io.Writer, cfg *config.Config) error {
 	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
-	if _, err := fmt.Fprintln(writer, "NAME\tPREFIX\tUPSTREAM\tAUTH\tTOKENS"); err != nil {
+	if _, err := fmt.Fprintln(writer, "NAME\tUPSTREAM\tAUTH\tTOKENS"); err != nil {
 		return err
 	}
 	for _, route := range cfg.Routes {
-		if _, err := fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%d\n", route.Name, route.PathPrefix, publicURL(route.Upstream.URL), route.Upstream.Auth.Mode, len(route.Downstream.Tokens)); err != nil {
+		if _, err := fmt.Fprintf(writer, "%s\t%s\t%s\t%d\n", route.Name, publicURL(route.Upstream.URL), route.Upstream.Auth.Mode, len(route.Downstream.Tokens)); err != nil {
 			return err
 		}
 	}

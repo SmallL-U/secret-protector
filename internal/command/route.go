@@ -12,7 +12,6 @@ import (
 
 type routeAddOptions struct {
 	name                  string
-	prefix                string
 	upstreamURL           string
 	authMode              string
 	upstreamToken         string
@@ -21,7 +20,6 @@ type routeAddOptions struct {
 	queryParam            string
 	downstreamQueryParams []string
 	tokenName             string
-	stripPrefix           bool
 }
 
 func newRouteCommand(configPath *string) *cobra.Command {
@@ -64,9 +62,6 @@ func newRouteAddCommand(configPath *string) *cobra.Command {
 			if options.name == "" {
 				return errors.New("--name is required")
 			}
-			if options.prefix == "" {
-				return errors.New("--prefix is required")
-			}
 			if options.upstreamURL == "" {
 				return errors.New("--upstream-url is required")
 			}
@@ -88,7 +83,6 @@ func newRouteAddCommand(configPath *string) *cobra.Command {
 	}
 	flags := command.Flags()
 	flags.StringVar(&options.name, "name", "", "unique route name")
-	flags.StringVar(&options.prefix, "prefix", "", "downstream path prefix")
 	flags.StringVar(&options.upstreamURL, "upstream-url", "", "upstream base URL")
 	flags.StringVar(&options.authMode, "auth-mode", "auto", "upstream auth mode: auto, bearer, query, or basic")
 	flags.StringVar(&options.upstreamToken, "upstream-token", "", "upstream token used by auto, bearer, or query mode")
@@ -97,18 +91,15 @@ func newRouteAddCommand(configPath *string) *cobra.Command {
 	flags.StringVar(&options.queryParam, "query-param", "token", "upstream query parameter name")
 	flags.StringArrayVar(&options.downstreamQueryParams, "downstream-query-param", nil, "accepted downstream query parameter; repeatable")
 	flags.StringVar(&options.tokenName, "token-name", "default", "name of the initially issued downstream token")
-	flags.BoolVar(&options.stripPrefix, "strip-prefix", false, "remove the route prefix before proxying")
 
 	return command
 }
 
 func (options routeAddOptions) route(issuedToken string) config.Route {
 	return config.Route{
-		Name:       options.name,
-		PathPrefix: options.prefix,
+		Name: options.name,
 		Upstream: config.UpstreamConfig{
-			URL:         options.upstreamURL,
-			StripPrefix: options.stripPrefix,
+			URL: options.upstreamURL,
 			Auth: config.UpstreamAuth{
 				Mode:       options.authMode,
 				Token:      options.upstreamToken,

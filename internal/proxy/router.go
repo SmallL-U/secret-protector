@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"sort"
-	"strings"
 
 	"secret-protector/internal/auth"
 	"secret-protector/internal/config"
@@ -20,48 +18,65 @@ import (
 type credentialContextKey struct{}
 
 type Router struct {
-	routes []*route
+	routes      []*route
+	queryParams []string
 }
 
 type route struct {
 	name        string
-	pathPrefix  string
-	stripPrefix bool
 	queryParams []string
 	tokenHashes [][sha256.Size]byte
 	proxy       *httputil.ReverseProxy
 }
 
 func NewRouter(cfg *config.Config, logger *slog.Logger) (*Router, error) {
+	if cfg == nil {
+		return nil, errors.New("config is nil")
+	}
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	routes := make([]*route, 0, len(cfg.Routes))
+	queryParams := make([]string, 0)
+	knownQueryParams := make(map[string]struct{})
 	for i := range cfg.Routes {
 		compiled, err := newRoute(cfg.Routes[i], logger)
 		if err != nil {
 			return nil, err
 		}
 		routes = append(routes, compiled)
+		for _, param := range compiled.queryParams {
+			if _, exists := knownQueryParams[param]; exists {
+				continue
+			}
+			knownQueryParams[param] = struct{}{}
+			queryParams = append(queryParams, param)
+		}
 	}
-	sort.SliceStable(routes, func(i, j int) bool {
-		return len(routes[i].pathPrefix) > len(routes[j].pathPrefix)
-	})
 
-	return &Router{routes: routes}, nil
+	return &Router{routes: routes, queryParams: queryParams}, nil
 }
 
 func (router *Router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	for _, candidate := range router.routes {
-		if !matchesPrefix(request.URL.Path, candidate.pathPrefix) {
-			continue
-		}
-		candidate.serveHTTP(writer, request)
+	credential, err := auth.Detect(request, router.queryParams)
+	if errors.Is(err, auth.ErrMissing) {
+		writeUnauthorized(writer)
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_authentication", "authentication credentials are invalid")
 		return
 	}
 
-	writeError(writer, http.StatusNotFound, "route_not_found", "no route matches this request")
+	matched := router.matchCredential(credential)
+	if matched == nil {
+		writeUnauthorized(writer)
+		return
+	}
+
+	ctx := context.WithValue(request.Context(), credentialContextKey{}, credential)
+	matched.proxy.ServeHTTP(writer, request.WithContext(ctx))
 }
 
 func newRoute(routeConfig config.Route, logger *slog.Logger) (*route, error) {
@@ -76,8 +91,6 @@ func newRoute(routeConfig config.Route, logger *slog.Logger) (*route, error) {
 
 	compiled := &route{
 		name:        routeConfig.Name,
-		pathPrefix:  routeConfig.PathPrefix,
-		stripPrefix: routeConfig.Upstream.StripPrefix,
 		queryParams: append([]string(nil), routeConfig.Downstream.QueryParams...),
 		tokenHashes: make([][sha256.Size]byte, len(routeConfig.Downstream.Tokens)),
 	}
@@ -95,9 +108,6 @@ func newRoute(routeConfig config.Route, logger *slog.Logger) (*route, error) {
 			query.Del(downstream.QueryParam)
 			request.URL.RawQuery = query.Encode()
 		}
-		if compiled.stripPrefix {
-			stripURLPathPrefix(request.URL, compiled.pathPrefix)
-		}
 
 		baseDirector(request)
 		request.Host = target.Host
@@ -112,23 +122,24 @@ func newRoute(routeConfig config.Route, logger *slog.Logger) (*route, error) {
 	return compiled, nil
 }
 
-func (route *route) serveHTTP(writer http.ResponseWriter, request *http.Request) {
-	credential, err := auth.Detect(request, route.queryParams)
-	if errors.Is(err, auth.ErrMissing) {
-		writeUnauthorized(writer)
-		return
+func (router *Router) matchCredential(credential auth.Credential) *route {
+	var matched *route
+	matchCount := 0
+	for _, candidate := range router.routes {
+		if !candidate.accepts(credential.Token) {
+			continue
+		}
+		matched = candidate
+		matchCount++
 	}
-	if err != nil {
-		writeError(writer, http.StatusBadRequest, "invalid_authentication", "authentication credentials are invalid")
-		return
+	if matchCount != 1 {
+		return nil
 	}
-	if !route.accepts(credential.Token) {
-		writeUnauthorized(writer)
-		return
+	if credential.Scheme == auth.SchemeQuery && !matched.acceptsQueryParam(credential.QueryParam) {
+		return nil
 	}
 
-	ctx := context.WithValue(request.Context(), credentialContextKey{}, credential)
-	route.proxy.ServeHTTP(writer, request.WithContext(ctx))
+	return matched
 }
 
 func (route *route) accepts(candidate string) bool {
@@ -141,58 +152,14 @@ func (route *route) accepts(candidate string) bool {
 	return matched == 1
 }
 
-func matchesPrefix(requestPath string, prefix string) bool {
-	if prefix == "/" {
-		return true
-	}
-	if requestPath == prefix {
-		return true
-	}
-
-	return strings.HasPrefix(requestPath, prefix+"/")
-}
-
-func stripPathPrefix(requestPath string, prefix string) string {
-	if prefix == "/" {
-		return requestPath
+func (route *route) acceptsQueryParam(candidate string) bool {
+	for _, expected := range route.queryParams {
+		if candidate == expected {
+			return true
+		}
 	}
 
-	stripped := strings.TrimPrefix(requestPath, prefix)
-	if stripped == "" {
-		return "/"
-	}
-
-	return stripped
-}
-
-func stripURLPathPrefix(requestURL *url.URL, prefix string) {
-	if prefix == "/" {
-		return
-	}
-
-	originalEscapedPath := requestURL.EscapedPath()
-	requestURL.Path = stripPathPrefix(requestURL.Path, prefix)
-	if requestURL.RawPath == "" {
-		return
-	}
-
-	prefixURL := &url.URL{Path: prefix}
-	escapedPrefix := prefixURL.EscapedPath()
-	if !strings.HasPrefix(originalEscapedPath, escapedPrefix) {
-		requestURL.RawPath = ""
-		return
-	}
-
-	rawPath := strings.TrimPrefix(originalEscapedPath, escapedPrefix)
-	if rawPath == "" {
-		rawPath = "/"
-	}
-	candidate := &url.URL{Path: requestURL.Path, RawPath: rawPath}
-	if candidate.EscapedPath() != rawPath {
-		requestURL.RawPath = ""
-		return
-	}
-	requestURL.RawPath = rawPath
+	return false
 }
 
 func writeUnauthorized(writer http.ResponseWriter) {
