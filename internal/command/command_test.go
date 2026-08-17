@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -270,15 +271,99 @@ func TestInvalidCLIUpdateLeavesConfigUnchanged(t *testing.T) {
 	}
 }
 
-func TestServeRefusesInvalidStartupConfig(t *testing.T) {
+func TestServeStartsUnreadyAndRecoversAfterValidConfig(t *testing.T) {
+	upstreamAuth := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		upstreamAuth <- request.Header.Get("Authorization")
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
 	filename := filepath.Join(t.TempDir(), "config.yml")
-	if err := os.WriteFile(filename, []byte("version: 1\nunknown: true\n"), 0o600); err != nil {
+	invalidData := []byte("version: 1\n" +
+		"server:\n" +
+		"  listen: 127.0.0.1:0\n" +
+		"  reload_interval: 5ms\n" +
+		"  shutdown_timeout: 1s\n" +
+		"routes:\n" +
+		"  - name: api\n" +
+		"    path_prefix: /api/\n" +
+		"    upstream:\n" +
+		"      url: " + upstream.URL + "\n" +
+		"      auth:\n" +
+		"        mode: bearer\n" +
+		"        token: startup-secret-must-not-appear\n")
+	if err := os.WriteFile(filename, invalidData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	err := serve(context.Background(), filename, logger)
-	if err == nil || !strings.Contains(err.Error(), "startup refused") {
-		t.Fatalf("serve() error = %v", err)
+
+	logs := &synchronizedBuffer{}
+	logger := slog.New(slog.NewJSONHandler(logs, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- serve(ctx, filename, logger)
+	}()
+	defer cancel()
+
+	listenAddress := waitForListenAddress(t, logs)
+	status, body, err := requestStatus(listenAddress, "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != http.StatusServiceUnavailable || !strings.Contains(body, `"status":"unavailable"`) {
+		t.Fatalf("unready health response = %d %q", status, body)
+	}
+	if !strings.Contains(logs.String(), `"level":"WARN"`) || !strings.Contains(logs.String(), `"ready":false`) {
+		t.Fatalf("startup logs do not report unready state: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), "startup-secret-must-not-appear") {
+		t.Fatal("startup warning exposed invalid config content")
+	}
+
+	cfg := config.New()
+	cfg.Server.Listen = "127.0.0.1:0"
+	cfg.Server.ReloadInterval = "5ms"
+	cfg.Server.ShutdownTimeout = "1s"
+	cfg.Routes = []config.Route{
+		{
+			Name:       "api",
+			PathPrefix: "/api",
+			Upstream: config.UpstreamConfig{
+				URL: upstream.URL,
+				Auth: config.UpstreamAuth{
+					Mode:  "bearer",
+					Token: "recovered-upstream-token",
+				},
+			},
+			Downstream: config.DownstreamConfig{
+				QueryParams: []string{"token"},
+				Tokens: []config.AccessToken{
+					{Name: "client", Value: "client-token"},
+				},
+			},
+		},
+	}
+	if err := config.SaveAtomic(filename, cfg); err != nil {
+		t.Fatal(err)
+	}
+	waitForCommand(t, time.Second, func() bool {
+		actual, _, requestErr := requestStatus(listenAddress, "/healthz")
+		return requestErr == nil && actual == http.StatusOK
+	})
+	requestProxy(t, listenAddress)
+	if actual := <-upstreamAuth; actual != "Bearer recovered-upstream-token" {
+		t.Fatalf("recovered upstream auth = %q", actual)
+	}
+
+	cancel()
+	select {
+	case err := <-serveDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("serve did not stop after context cancellation")
 	}
 }
 
@@ -327,16 +412,14 @@ func TestServeReloadsValidFileAndKeepsSnapshotAfterInvalidFile(t *testing.T) {
 	}()
 	defer cancel()
 
-	listenPattern := regexp.MustCompile(`"listen":"([^"]+)"`)
-	var listenAddress string
-	waitForCommand(t, time.Second, func() bool {
-		match := listenPattern.FindStringSubmatch(logs.String())
-		if len(match) != 2 {
-			return false
-		}
-		listenAddress = match[1]
-		return true
-	})
+	listenAddress := waitForListenAddress(t, logs)
+	status, _, err := requestStatus(listenAddress, "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("initial health status = %d", status)
+	}
 
 	requestProxy(t, listenAddress)
 	if actual := <-upstreamAuth; actual != "Bearer old-upstream-token" {
@@ -368,6 +451,13 @@ func TestServeReloadsValidFileAndKeepsSnapshotAfterInvalidFile(t *testing.T) {
 	if strings.Contains(logs.String(), "must-not-appear-in-log") {
 		t.Fatal("reload warning exposed invalid config content")
 	}
+	status, _, err = requestStatus(listenAddress, "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("health after rejected reload = %d", status)
+	}
 	requestProxy(t, listenAddress)
 	if actual := <-upstreamAuth; actual != "Bearer new-upstream-token" {
 		t.Fatalf("upstream auth after invalid file = %q", actual)
@@ -381,6 +471,27 @@ func TestServeReloadsValidFileAndKeepsSnapshotAfterInvalidFile(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("serve did not stop after context cancellation")
+	}
+}
+
+func TestServeReturnsErrorWhenListenAddressCannotBeBound(t *testing.T) {
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer occupied.Close()
+
+	filename := filepath.Join(t.TempDir(), "config.yml")
+	cfg := config.New()
+	cfg.Server.Listen = occupied.Addr().String()
+	if err := config.SaveAtomic(filename, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	err = serve(context.Background(), filename, logger)
+	if err == nil || !strings.Contains(err.Error(), "listen on") {
+		t.Fatalf("serve() error = %v", err)
 	}
 }
 
@@ -416,6 +527,37 @@ func requestProxy(t *testing.T, listenAddress string) {
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("proxy status = %d", response.StatusCode)
 	}
+}
+
+func requestStatus(listenAddress string, path string) (int, string, error) {
+	client := &http.Client{Timeout: time.Second}
+	response, err := client.Get("http://" + listenAddress + path)
+	if err != nil {
+		return 0, "", err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return 0, "", err
+	}
+
+	return response.StatusCode, string(body), nil
+}
+
+func waitForListenAddress(t *testing.T, logs *synchronizedBuffer) string {
+	t.Helper()
+	listenPattern := regexp.MustCompile(`"listen":"([^"]+)"`)
+	var listenAddress string
+	waitForCommand(t, time.Second, func() bool {
+		match := listenPattern.FindStringSubmatch(logs.String())
+		if len(match) != 2 {
+			return false
+		}
+		listenAddress = match[1]
+		return true
+	})
+
+	return listenAddress
 }
 
 func waitForCommand(t *testing.T, timeout time.Duration, condition func() bool) {

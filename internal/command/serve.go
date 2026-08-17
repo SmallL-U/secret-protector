@@ -26,34 +26,40 @@ func newServeCommand(configPath *string, logger *slog.Logger) *cobra.Command {
 }
 
 func serve(ctx context.Context, filename string, logger *slog.Logger) error {
-	cfg, initialData, err := config.Load(filename)
-	if err != nil {
-		return fmt.Errorf("startup refused: %w", err)
+	cfg, initialData, startupErr := config.Load(filename)
+	serverConfig := config.New().Server
+	if startupErr == nil {
+		serverConfig = cfg.Server
+	} else if parsedServer, err := config.ParseServer(initialData); err == nil {
+		serverConfig = parsedServer
 	}
 
-	runtime, err := proxyserver.NewRuntime(cfg, logger)
-	if err != nil {
-		return fmt.Errorf("startup refused: build routes: %w", err)
+	runtime := proxyserver.NewUnreadyRuntime(serverConfig, logger)
+	if startupErr == nil {
+		startupErr = runtime.Reload(cfg)
 	}
-	listener, err := net.Listen("tcp", cfg.Server.Listen)
+	listener, err := net.Listen("tcp", serverConfig.Listen)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", cfg.Server.Listen, err)
+		return fmt.Errorf("listen on %s: %w", serverConfig.Listen, err)
 	}
 
 	server := &http.Server{
 		Handler:           runtime,
-		ReadHeaderTimeout: cfg.Server.ReadHeaderDuration(),
-		IdleTimeout:       cfg.Server.IdleDuration(),
+		ReadHeaderTimeout: serverConfig.ReadHeaderDuration(),
+		IdleTimeout:       serverConfig.IdleDuration(),
 	}
 	watchCtx, stopWatching := context.WithCancel(ctx)
 	defer stopWatching()
-	go config.Watch(watchCtx, filename, cfg.Server.ReloadDuration(), initialData, runtime.Reload, logger)
+	go config.Watch(watchCtx, filename, serverConfig.ReloadDuration(), initialData, runtime.Reload, logger)
 
 	serveErrors := make(chan error, 1)
 	go func() {
 		serveErrors <- server.Serve(listener)
 	}()
-	logger.Info("proxy started", "listen", listener.Addr().String(), "config", filename)
+	if startupErr != nil {
+		logger.Warn("startup config unavailable; proxy is not ready", "error", "configuration is invalid")
+	}
+	logger.Info("proxy started", "listen", listener.Addr().String(), "config", filename, "ready", runtime.Ready())
 
 	select {
 	case err := <-serveErrors:
@@ -63,7 +69,7 @@ func serve(ctx context.Context, filename string, logger *slog.Logger) error {
 		return fmt.Errorf("serve proxy: %w", err)
 	case <-ctx.Done():
 		stopWatching()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownDuration())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), serverConfig.ShutdownDuration())
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shut down proxy: %w", err)

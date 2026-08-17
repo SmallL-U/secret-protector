@@ -92,13 +92,37 @@ func Load(filename string) (*Config, []byte, error) {
 
 	cfg, err := Parse(data)
 	if err != nil {
-		return nil, nil, err
+		return nil, data, err
 	}
 
 	return cfg, data, nil
 }
 
 func Parse(data []byte) (*Config, error) {
+	raw, err := decode(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return Prepare(raw)
+}
+
+func ParseServer(data []byte) (ServerConfig, error) {
+	raw, err := decode(data)
+	if err != nil {
+		return ServerConfig{}, err
+	}
+
+	server := raw.Server
+	applyServerDefaults(&server)
+	if err := validateServer(server); err != nil {
+		return ServerConfig{}, err
+	}
+
+	return server, nil
+}
+
+func decode(data []byte) (*Config, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 
@@ -116,7 +140,7 @@ func Parse(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	return Prepare(&raw)
+	return &raw, nil
 }
 
 func Prepare(input *Config) (*Config, error) {
@@ -170,21 +194,7 @@ func (s ServerConfig) ShutdownDuration() time.Duration {
 }
 
 func applyDefaults(cfg *Config) {
-	if cfg.Server.Listen == "" {
-		cfg.Server.Listen = defaultListen
-	}
-	if cfg.Server.ReloadInterval == "" {
-		cfg.Server.ReloadInterval = defaultReloadInterval
-	}
-	if cfg.Server.ReadHeaderTimeout == "" {
-		cfg.Server.ReadHeaderTimeout = defaultReadHeaderTimeout
-	}
-	if cfg.Server.IdleTimeout == "" {
-		cfg.Server.IdleTimeout = defaultIdleTimeout
-	}
-	if cfg.Server.ShutdownTimeout == "" {
-		cfg.Server.ShutdownTimeout = defaultShutdownTimeout
-	}
+	applyServerDefaults(&cfg.Server)
 
 	for i := range cfg.Routes {
 		if cfg.Routes[i].Upstream.Auth.Mode == "" || cfg.Routes[i].Upstream.Auth.Mode == "follow" {
@@ -196,6 +206,24 @@ func applyDefaults(cfg *Config) {
 		if cfg.Routes[i].Upstream.Auth.Mode == "query" && cfg.Routes[i].Upstream.Auth.QueryParam == "" {
 			cfg.Routes[i].Upstream.Auth.QueryParam = "token"
 		}
+	}
+}
+
+func applyServerDefaults(server *ServerConfig) {
+	if server.Listen == "" {
+		server.Listen = defaultListen
+	}
+	if server.ReloadInterval == "" {
+		server.ReloadInterval = defaultReloadInterval
+	}
+	if server.ReadHeaderTimeout == "" {
+		server.ReadHeaderTimeout = defaultReadHeaderTimeout
+	}
+	if server.IdleTimeout == "" {
+		server.IdleTimeout = defaultIdleTimeout
+	}
+	if server.ShutdownTimeout == "" {
+		server.ShutdownTimeout = defaultShutdownTimeout
 	}
 }
 

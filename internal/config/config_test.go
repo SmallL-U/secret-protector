@@ -69,6 +69,58 @@ func TestParseRejectsUnknownFieldsAndMultipleDocuments(t *testing.T) {
 	}
 }
 
+func TestParseServerUsesValidProcessSettingsFromInvalidConfiguration(t *testing.T) {
+	data := []byte(`
+version: 1
+server:
+  listen: 127.0.0.1:0
+  reload_interval: 5ms
+routes:
+  - name: broken
+    path_prefix: /api/
+`)
+
+	if _, err := Parse(data); err == nil {
+		t.Fatal("Parse() succeeded, want route validation error")
+	}
+	server, err := ParseServer(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.Listen != "127.0.0.1:0" || server.ReloadInterval != "5ms" {
+		t.Fatalf("server = %#v", server)
+	}
+	if server.ReadHeaderTimeout != "10s" || server.ShutdownTimeout != "10s" {
+		t.Fatalf("server defaults were not applied: %#v", server)
+	}
+
+	if _, err := ParseServer([]byte("version: 1\nunknown: true\n")); err == nil {
+		t.Fatal("ParseServer() accepted an unknown field")
+	}
+	if _, err := ParseServer([]byte("version: 1\nserver:\n  listen: invalid\n")); err == nil {
+		t.Fatal("ParseServer() accepted invalid server settings")
+	}
+}
+
+func TestLoadReturnsCandidateDataWhenValidationFails(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "config.yml")
+	data := []byte("version: 1\nroutes:\n  - name: broken\n    path_prefix: /api/\n")
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, actual, err := Load(filename)
+	if err == nil {
+		t.Fatal("Load() succeeded, want validation error")
+	}
+	if cfg != nil {
+		t.Fatalf("Load() config = %#v, want nil", cfg)
+	}
+	if !bytes.Equal(actual, data) {
+		t.Fatalf("Load() data = %q, want %q", actual, data)
+	}
+}
+
 func TestPrepareRejectsInvalidRoutes(t *testing.T) {
 	tests := []struct {
 		name   string

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -22,24 +23,34 @@ func NewRuntime(cfg *config.Config, logger *slog.Logger) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	if logger == nil {
-		logger = slog.Default()
-	}
 
 	router, err := NewRouter(prepared, logger)
 	if err != nil {
 		return nil, err
 	}
-	runtime := &Runtime{
-		server: prepared.Server,
-		logger: logger,
-	}
+	runtime := NewUnreadyRuntime(prepared.Server, logger)
 	runtime.current.Store(router)
 
 	return runtime, nil
 }
 
+func NewUnreadyRuntime(server config.ServerConfig, logger *slog.Logger) *Runtime {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	return &Runtime{
+		server: server,
+		logger: logger,
+	}
+}
+
 func (runtime *Runtime) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if request.URL.Path == "/healthz" {
+		runtime.serveHealth(writer, request)
+		return
+	}
+
 	router := runtime.current.Load()
 	if router == nil {
 		writeError(writer, http.StatusServiceUnavailable, "not_ready", "the proxy is not ready")
@@ -47,6 +58,31 @@ func (runtime *Runtime) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	}
 
 	router.ServeHTTP(writer, request)
+}
+
+func (runtime *Runtime) Ready() bool {
+	return runtime.current.Load() != nil
+}
+
+func (runtime *Runtime) serveHealth(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet && request.Method != http.MethodHead {
+		writer.Header().Set("Allow", "GET, HEAD")
+		writeError(writer, http.StatusMethodNotAllowed, "method_not_allowed", "health checks require GET or HEAD")
+		return
+	}
+
+	status := http.StatusOK
+	state := "ok"
+	if !runtime.Ready() {
+		status = http.StatusServiceUnavailable
+		state = "unavailable"
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(status)
+	if request.Method == http.MethodHead {
+		return
+	}
+	_ = json.NewEncoder(writer).Encode(map[string]string{"status": state})
 }
 
 func (runtime *Runtime) Reload(next *config.Config) error {

@@ -289,6 +289,42 @@ func TestRouterRejectsMissingInvalidAndAmbiguousAuthentication(t *testing.T) {
 	}
 }
 
+func TestRuntimeHealthReflectsWhetherSnapshotIsAvailable(t *testing.T) {
+	runtime := NewUnreadyRuntime(config.New().Server, discardLogger())
+	assertHealth(t, runtime, http.MethodGet, http.StatusServiceUnavailable, `"status":"unavailable"`)
+	assertHealth(t, runtime, http.MethodHead, http.StatusServiceUnavailable, "")
+
+	request := httptest.NewRequest(http.MethodPost, "http://proxy.test/healthz", nil)
+	response := httptest.NewRecorder()
+	runtime.ServeHTTP(response, request)
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST health status = %d", response.Code)
+	}
+	if actual := response.Header().Get("Allow"); actual != "GET, HEAD" {
+		t.Fatalf("Allow = %q", actual)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "http://proxy.test/api", nil)
+	response = httptest.NewRecorder()
+	runtime.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unready proxy status = %d", response.Code)
+	}
+
+	cfg := proxyConfig("https://example.test", config.UpstreamAuth{Mode: "bearer", Token: "upstream-token"})
+	if err := runtime.Reload(cfg); err != nil {
+		t.Fatal(err)
+	}
+	assertHealth(t, runtime, http.MethodGet, http.StatusOK, `"status":"ok"`)
+
+	invalid := config.Clone(cfg)
+	invalid.Routes[0].Upstream.Auth.Token = ""
+	if err := runtime.Reload(invalid); err == nil {
+		t.Fatal("invalid reload succeeded")
+	}
+	assertHealth(t, runtime, http.MethodGet, http.StatusOK, `"status":"ok"`)
+}
+
 func TestRuntimePublishesValidReloadAndKeepsLastSnapshotOnErrors(t *testing.T) {
 	observed := make(chan string, 4)
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -395,6 +431,23 @@ func proxyOnce(t *testing.T, runtime *Runtime) {
 	runtime.ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func assertHealth(t *testing.T, runtime *Runtime, method string, status int, bodyFragment string) {
+	t.Helper()
+	request := httptest.NewRequest(method, "http://proxy.test/healthz", nil)
+	request.Header.Set("Authorization", "Bearer invalid-and-ignored")
+	response := httptest.NewRecorder()
+	runtime.ServeHTTP(response, request)
+	if response.Code != status {
+		t.Fatalf("health status = %d, want %d", response.Code, status)
+	}
+	if bodyFragment == "" && response.Body.Len() != 0 {
+		t.Fatalf("health body = %q, want empty", response.Body.String())
+	}
+	if bodyFragment != "" && !strings.Contains(response.Body.String(), bodyFragment) {
+		t.Fatalf("health body = %q, want fragment %q", response.Body.String(), bodyFragment)
 	}
 }
 
