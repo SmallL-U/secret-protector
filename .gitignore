@@ -1,0 +1,6 @@
+/bin/
+/dist/
+/secret-protector
+/config.yml
+*.tmp
+
