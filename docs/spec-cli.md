@@ -45,7 +45,7 @@ secret-protector token revoke ROUTE TOKEN_NAME
 
 ## 交互式管理
 
-`secret-protector manage` 必须提供不依赖 flags 的交互式配置管理入口，同时保留上述参数式命令。交互入口使用 `--config` 指定同一个 YAML 文件，并提供以下主菜单：
+`secret-protector manage` 使用 `charm.land/huh/v2` 表单提供不依赖 flags 的交互式配置管理入口。交互入口使用 `--config` 指定同一个 YAML 文件，并提供以下主菜单：
 
 ```text
 1  List routes
@@ -63,9 +63,10 @@ secret-protector token revoke ROUTE TOKEN_NAME
 - 配置文件不存在时，先询问是否创建，并提供监听地址默认值 `127.0.0.1:8080`。
 - Add route 以向导形式收集路由、上游鉴权、下游 Query 参数和初始 token 名称；根据 auth mode 只要求对应的必填凭证。
 - `auto` 向导允许配置可选的上游 Basic 用户名和密码；空密码表示使用 `auth.token`。
-- 选择、确认和普通字段支持方括号中的默认值，直接回车接受默认值。
+- 选择、确认和普通字段使用 `huh` 的 Select、Confirm 和 Input 控件，并支持直接接受默认值。
 - 删除路由和吊销 token 前必须二次确认，默认答案为否。
 - 在真实 TTY 上输入上游 token 或密码时关闭回显；从 pipe 或测试 reader 输入时按普通行读取。
+- 非 TTY 输入自动使用 accessible 行模式；`SECRET_PROTECTOR_ACCESSIBLE` 非空时也强制使用该模式，方便屏幕阅读器且避免终端重绘。
 - List route 不显示秘密；List token 只显示名称和短指纹；签发的完整下游 token 仍只显示一次。
 - 单个操作输入或校验失败时打印错误并回到主菜单，不终止会话，也不修改原文件。
 - 收到 EOF 或选择 Exit 时正常退出。
