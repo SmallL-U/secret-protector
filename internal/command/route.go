@@ -92,7 +92,7 @@ func newRouteAddCommand(configPath *string) *cobra.Command {
 	flags.StringArrayVar(&options.downstreamQueryParams, "downstream-query-param", nil, "accepted downstream query parameter; repeatable")
 	flags.StringVar(&options.tokenName, "token-name", "default", "name of the initially issued downstream token")
 
-	return command
+	return markConfigWrite(command)
 }
 
 func (options routeAddOptions) route(issuedToken string) config.Route {
@@ -118,7 +118,7 @@ func (options routeAddOptions) route(issuedToken string) config.Route {
 }
 
 func newRouteRemoveCommand(configPath *string) *cobra.Command {
-	return &cobra.Command{
+	return markConfigWrite(&cobra.Command{
 		Use:   "remove NAME",
 		Short: "Remove a route",
 		Args:  cobra.ExactArgs(1),
@@ -131,7 +131,7 @@ func newRouteRemoveCommand(configPath *string) *cobra.Command {
 			_, err := fmt.Fprintf(command.OutOrStdout(), "route %s removed\n", name)
 			return err
 		},
-	}
+	})
 }
 
 func routeIndex(cfg *config.Config, name string) int {

@@ -64,6 +64,8 @@ secret-protector token issue|list|revoke
 
 `manage` 使用 `huh` v2 表单：TTY 中提供可选择、可返回的终端界面并隐藏敏感输入；pipe 中自动退化为逐行提示。设置 `SECRET_PROTECTOR_ACCESSIBLE=1` 可强制启用适合屏幕阅读器的无重绘模式。
 
+帮助文本和交互菜单使用 `[write]` 标记会修改 YAML 的操作。CLI 会在执行前检查配置文件及目录是否可写；只读 bind mount 或只读权限下保留所有命令入口，但写操作会以 `configuration is read-only` 拒绝，`serve`、校验和列表操作仍可使用。
+
 ## Docker
 
 镜像基于 Alpine，默认以 root 用户执行 `secret-protector --config /config/config.yml serve`。先将配置放入单独目录，并把 `server.listen` 设置为 `0.0.0.0:8080`；上游地址需要能从容器内部访问。
@@ -85,7 +87,7 @@ docker run --rm \
 
 挂载整个配置目录可以让宿主机上的原子配置更新继续被容器内的热重载检测到。配置以只读方式挂载，容器内的 root 用户可以读取 CLI 以 `0600` 权限创建的文件。
 
-GitHub Actions 会在每次 push 和 pull request 中执行 `make verify`、race test，并构建和启动检查 Docker 镜像；当前不会向镜像仓库推送。
+GitHub Actions 会在每次 push 和 pull request 中执行 `make verify`、race test，并构建和启动检查 Docker 镜像。push 事件通过 `DOCKER_USERNAME` 和 `DOCKER_PASSWORD` 登录 Docker Hub，将镜像发布到 `smalllu/secret-protector`；默认分支额外发布 `latest`，同时发布分支或 Git tag 及 `sha-*` 标签。pull request 只构建检查，不读取发布凭证或推送镜像。`DOCKER_PASSWORD` 应保存 Docker Hub access token，而不是账户密码。
 
 ## 开发
 

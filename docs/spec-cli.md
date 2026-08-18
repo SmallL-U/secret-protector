@@ -15,6 +15,8 @@ secret-protector token list ROUTE
 secret-protector token revoke ROUTE TOKEN_NAME
 ```
 
+会修改 YAML 的子命令在帮助文本中带有 `[write]` 标识。命令始终保持注册和可发现；执行写命令前，CLI 必须检查配置文件及其目录是否支持项目要求的原子替换。配置只读时必须返回 `configuration is read-only`，且不得进入参数式命令的写入逻辑。`serve`、`config validate`、`route list` 和 `token list` 不受影响。
+
 ## 管理行为
 
 - `config init` 创建 version 1 的空路由配置；目标已存在时默认拒绝覆盖，`--force` 可显式覆盖。
@@ -57,11 +59,11 @@ secret-protector token revoke ROUTE TOKEN_NAME
 
 ```text
 1  List routes
-2  Add route
-3  Remove route
-4  Issue downstream token
+2  Add route [write]
+3  Remove route [write]
+4  Issue downstream token [write]
 5  List downstream tokens
-6  Revoke downstream token
+6  Revoke downstream token [write]
 7  Validate configuration
 0  Exit
 ```
@@ -77,5 +79,6 @@ secret-protector token revoke ROUTE TOKEN_NAME
 - 非 TTY 输入自动使用 accessible 行模式；`SECRET_PROTECTOR_ACCESSIBLE` 非空时也强制使用该模式，方便屏幕阅读器且避免终端重绘。
 - List route 不显示秘密；List token 只显示名称和短指纹；签发的完整下游 token 仍只显示一次。
 - 单个操作输入或校验失败时打印错误并回到主菜单，不终止会话，也不修改原文件。
+- 配置只读时，菜单标题必须显示 `[read-only]`；选择带 `[write]` 的操作后必须立即拒绝并回到主菜单，不得继续询问凭证或修改参数。
 - 收到 EOF 或选择 Exit 时正常退出。
 - 所有交互式写操作必须复用参数式命令相同的全量校验和原子替换路径，不得维护第二套持久化逻辑。

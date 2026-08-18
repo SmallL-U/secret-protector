@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"secret-protector/internal/config"
 )
 
 func NewRootCommand() *cobra.Command {
@@ -12,8 +14,15 @@ func NewRootCommand() *cobra.Command {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
 	root := &cobra.Command{
-		Use:           "secret-protector",
-		Short:         "Protect upstream credentials behind a local reverse proxy",
+		Use:   "secret-protector",
+		Short: "Protect upstream credentials behind a local reverse proxy",
+		PersistentPreRunE: func(command *cobra.Command, _ []string) error {
+			if !writesConfig(command) {
+				return nil
+			}
+
+			return config.RequireWritable(configPath)
+		},
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}

@@ -48,7 +48,7 @@ func newConfigInitCommand(configPath *string) *cobra.Command {
 	command.Flags().StringVar(&listen, "listen", "127.0.0.1:8080", "TCP address to listen on")
 	command.Flags().BoolVar(&force, "force", false, "replace an existing configuration")
 
-	return command
+	return markConfigWrite(command)
 }
 
 func ensureConfigCanBeCreated(filename string, force bool) error {

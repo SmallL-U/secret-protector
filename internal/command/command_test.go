@@ -111,6 +111,123 @@ func TestCobraManagementWorkflow(t *testing.T) {
 	}
 }
 
+func TestReadOnlyConfigKeepsReadCommandsAndRejectsWriteCommands(t *testing.T) {
+	writeCommands := []struct {
+		name string
+		args []string
+	}{
+		{name: "config init", args: []string{"config", "init", "--force"}},
+		{name: "route add", args: []string{"route", "add", "--name", "other", "--upstream-url", "https://other.test", "--auth-mode", "bearer", "--upstream-token", "other-secret"}},
+		{name: "route remove", args: []string{"route", "remove", "api"}},
+		{name: "token issue", args: []string{"token", "issue", "api", "--name", "other"}},
+		{name: "token revoke", args: []string{"token", "revoke", "api", "client"}},
+	}
+
+	for _, test := range writeCommands {
+		t.Run(test.name, func(t *testing.T) {
+			filename := writeReadOnlyTestConfig(t)
+			before, err := os.ReadFile(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			args := append([]string{"--config", filename}, test.args...)
+			_, err = executeCommand(args...)
+			if !errors.Is(err, config.ErrReadOnly) {
+				t.Fatalf("command error = %v, want ErrReadOnly", err)
+			}
+
+			after, err := os.ReadFile(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, after) {
+				t.Fatal("read-only command changed the configuration")
+			}
+		})
+	}
+
+	filename := writeReadOnlyTestConfig(t)
+	readCommands := [][]string{
+		{"config", "validate"},
+		{"route", "list"},
+		{"token", "list", "api"},
+	}
+	for _, args := range readCommands {
+		commandArgs := append([]string{"--config", filename}, args...)
+		if _, err := executeCommand(commandArgs...); err != nil {
+			t.Fatalf("read command %q failed: %v", strings.Join(args, " "), err)
+		}
+	}
+
+	help, err := executeCommand("route", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(help, "[write]") {
+		t.Fatalf("route help does not mark write commands: %s", help)
+	}
+}
+
+func TestInteractiveManagerMarksAndRejectsReadOnlyWrites(t *testing.T) {
+	filename := writeReadOnlyTestConfig(t)
+	before, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := executeCommandWithInput("2\n0\n", "--config", filename, "manage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "[read-only]") || !strings.Contains(output, "[write]") {
+		t.Fatalf("interactive read-only markers are missing: %s", output)
+	}
+	if !strings.Contains(output, config.ErrReadOnly.Error()) {
+		t.Fatalf("interactive write rejection is missing: %s", output)
+	}
+
+	after, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("interactive read-only command changed the configuration")
+	}
+}
+
+func writeReadOnlyTestConfig(t *testing.T) string {
+	t.Helper()
+	filename := filepath.Join(t.TempDir(), "config.yml")
+	cfg := config.New()
+	cfg.Routes = []config.Route{
+		{
+			Name: "api",
+			Upstream: config.UpstreamConfig{
+				URL: "https://example.test",
+				Auth: config.UpstreamAuth{
+					Mode:  "bearer",
+					Token: "upstream-secret",
+				},
+			},
+			Downstream: config.DownstreamConfig{
+				QueryParams: []string{"token"},
+				Tokens: []config.AccessToken{
+					{Name: "client", Value: "downstream-secret"},
+				},
+			},
+		},
+	}
+	if err := config.SaveAtomic(filename, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filename, 0o400); err != nil {
+		t.Fatal(err)
+	}
+
+	return filename
+}
+
 func TestInteractiveManagementWorkflow(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "config.yml")
 	input := strings.Join([]string{

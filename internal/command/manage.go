@@ -113,6 +113,9 @@ func (manager *interactiveManager) ensureConfig() error {
 	if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect config: %w", err)
 	}
+	if err := config.RequireWritable(manager.filename); err != nil {
+		return err
+	}
 
 	create := true
 	if err := manager.runForm(
@@ -144,13 +147,17 @@ func (manager *interactiveManager) ensureConfig() error {
 
 func (manager *interactiveManager) mainMenu() (string, error) {
 	choice := ""
-	field := manager.choiceField("Secret Protector configuration manager", &choice,
+	title := "Secret Protector configuration manager ([write] changes configuration)"
+	if !config.IsWritable(manager.filename) {
+		title = "Secret Protector configuration manager [read-only] ([write] unavailable)"
+	}
+	field := manager.choiceField(title, &choice,
 		formOption{label: "1  List routes", value: "1"},
-		formOption{label: "2  Add route", value: "2"},
-		formOption{label: "3  Remove route", value: "3"},
-		formOption{label: "4  Issue downstream token", value: "4"},
+		formOption{label: "2  Add route [write]", value: "2"},
+		formOption{label: "3  Remove route [write]", value: "3"},
+		formOption{label: "4  Issue downstream token [write]", value: "4"},
 		formOption{label: "5  List downstream tokens", value: "5"},
-		formOption{label: "6  Revoke downstream token", value: "6"},
+		formOption{label: "6  Revoke downstream token [write]", value: "6"},
 		formOption{label: "7  Validate configuration", value: "7"},
 		formOption{label: "0  Exit", value: "0"},
 	)
@@ -162,6 +169,12 @@ func (manager *interactiveManager) mainMenu() (string, error) {
 }
 
 func (manager *interactiveManager) runAction(choice string) error {
+	if interactiveActionWrites(choice) {
+		if err := config.RequireWritable(manager.filename); err != nil {
+			return err
+		}
+	}
+
 	switch choice {
 	case "1":
 		return manager.listRoutes()
@@ -179,6 +192,15 @@ func (manager *interactiveManager) runAction(choice string) error {
 		return manager.validateConfig()
 	default:
 		return errors.New("unknown interactive action")
+	}
+}
+
+func interactiveActionWrites(choice string) bool {
+	switch choice {
+	case "2", "3", "4", "6":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -433,15 +455,17 @@ func (manager *interactiveManager) choiceField(title string, value *string, opti
 	}
 
 	allowed := make([]string, 0, len(options))
+	labels := make([]string, 0, len(options))
 	valid := make(map[string]struct{}, len(options))
 	for _, option := range options {
 		allowed = append(allowed, option.value)
+		labels = append(labels, option.label)
 		valid[option.value] = struct{}{}
 	}
 	defaultValue := *value
 	return huh.NewInput().
 		Title(title).
-		Description("Choices: " + strings.Join(allowed, ", ")).
+		Description("Choices: " + strings.Join(labels, ", ")).
 		Value(value).
 		Validate(func(input string) error {
 			candidate := defaultIfEmpty(strings.ToLower(strings.TrimSpace(input)), defaultValue)

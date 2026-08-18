@@ -44,7 +44,7 @@ func newTokenIssueCommand(configPath *string) *cobra.Command {
 	}
 	command.Flags().StringVar(&name, "name", "", "unique token name")
 
-	return command
+	return markConfigWrite(command)
 }
 
 func newTokenListCommand(configPath *string) *cobra.Command {
@@ -63,7 +63,7 @@ func newTokenListCommand(configPath *string) *cobra.Command {
 }
 
 func newTokenRevokeCommand(configPath *string) *cobra.Command {
-	return &cobra.Command{
+	return markConfigWrite(&cobra.Command{
 		Use:   "revoke ROUTE TOKEN_NAME",
 		Short: "Revoke a downstream token",
 		Args:  cobra.ExactArgs(2),
@@ -75,7 +75,7 @@ func newTokenRevokeCommand(configPath *string) *cobra.Command {
 			_, err := fmt.Fprintf(command.OutOrStdout(), "downstream token %s revoked\n", args[1])
 			return err
 		},
-	}
+	})
 }
 
 func accessTokenIndex(tokens []config.AccessToken, name string) int {
