@@ -17,6 +17,8 @@ func NewInjector(authConfig config.UpstreamAuth) (Injector, error) {
 		return bearerInjector{token: authConfig.Token}, nil
 	case "query":
 		return queryInjector{token: authConfig.Token, param: authConfig.QueryParam}, nil
+	case "header":
+		return headerInjector{token: authConfig.Token, name: authConfig.HeaderName}, nil
 	case "basic":
 		return basicInjector{username: authConfig.Username, password: authConfig.Password}, nil
 	case "auto":
@@ -25,6 +27,7 @@ func NewInjector(authConfig config.UpstreamAuth) (Injector, error) {
 			username:   authConfig.Username,
 			password:   authConfig.Password,
 			queryParam: authConfig.QueryParam,
+			headerName: authConfig.HeaderName,
 		}, nil
 	default:
 		return nil, errors.New("unsupported upstream authentication mode")
@@ -59,11 +62,21 @@ func (injector basicInjector) Inject(request *http.Request, _ Credential) {
 	request.SetBasicAuth(injector.username, injector.password)
 }
 
+type headerInjector struct {
+	token string
+	name  string
+}
+
+func (injector headerInjector) Inject(request *http.Request, _ Credential) {
+	request.Header.Set(injector.name, injector.token)
+}
+
 type autoInjector struct {
 	token      string
 	username   string
 	password   string
 	queryParam string
+	headerName string
 }
 
 func (injector autoInjector) Inject(request *http.Request, downstream Credential) {
@@ -73,6 +86,9 @@ func (injector autoInjector) Inject(request *http.Request, downstream Credential
 	case SchemeQuery:
 		param := firstNonEmpty(injector.queryParam, downstream.QueryParam)
 		queryInjector{token: injector.token, param: param}.Inject(request, downstream)
+	case SchemeHeader:
+		name := firstNonEmpty(injector.headerName, downstream.HeaderName)
+		headerInjector{token: injector.token, name: name}.Inject(request, downstream)
 	case SchemeBasic:
 		username := firstNonEmpty(injector.username, downstream.Username)
 		password := firstNonEmpty(injector.password, injector.token)

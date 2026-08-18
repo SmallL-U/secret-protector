@@ -21,11 +21,13 @@ Add routes with "secret-protector route add", or replace [] manually using this 
         token: REPLACE_ME_UPSTREAM_SECRET
     downstream:
       query_params: [token]
+      headers: [X-API-Key]
       tokens:
         - name: local-client
           value: REPLACE_ME_DOWNSTREAM_TOKEN
-auth.mode may be auto, bearer, query, or basic.
-auth.query_param is used by query/auto; username and password are used by basic/auto.`
+auth.mode may be auto, bearer, query, header, or basic.
+auth.query_param is used by query/auto; auth.header_name is used by header/auto;
+username and password are used by basic/auto.`
 
 func marshalConfig(cfg *Config) ([]byte, error) {
 	desired, err := configNode(cfg)

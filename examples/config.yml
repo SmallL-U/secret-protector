@@ -24,20 +24,24 @@ routes:
       # Base URL of the protected upstream service. Only http and https are accepted.
       url: http://127.0.0.1:9000
       auth:
-        # auto follows the downstream auth form. Other modes: bearer, query, basic.
+        # auto follows the downstream auth form. Other modes: bearer, query, header, basic.
         mode: auto
-        # Required by auto, bearer, and query modes.
+        # Required by auto, bearer, query, and header modes.
         token: REPLACE_ME_UPSTREAM_SECRET
         # Optional in auto mode; the token is used as the Basic password when password is absent.
         username: service-user
         # Optional auth fields:
         # password: REPLACE_ME_BASIC_PASSWORD # Required by basic mode.
         # query_param: api_key                # Query key used by query/auto mode.
+        # header_name: X-API-Key              # Header used by header/auto mode.
     downstream:
-      # Query parameter names accepted in addition to Bearer and Basic auth.
+      # Query parameter names accepted in addition to Authorization and custom-header auth.
       query_params:
         - token
         - api_key
+      # Custom headers accepted as downstream token carriers.
+      headers:
+        - X-API-Key
       # Each value must be globally unique. Generate values with the CLI; do not invent weak tokens.
       tokens:
         - name: local-client

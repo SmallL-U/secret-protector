@@ -42,12 +42,14 @@ secret-protector token revoke ROUTE TOKEN_NAME
 ## 路由鉴权 flags
 
 ```text
---auth-mode auto|bearer|query|basic
+--auth-mode auto|bearer|query|header|basic
 --upstream-token VALUE
 --upstream-username VALUE
 --upstream-password VALUE
 --query-param NAME
+--header-name NAME
 --downstream-query-param NAME   # 可重复
+--downstream-header NAME        # 可重复
 --token-name NAME               # route add 自动签发的下游 token 名称
 ```
 
@@ -71,8 +73,8 @@ secret-protector token revoke ROUTE TOKEN_NAME
 行为要求：
 
 - 配置文件不存在时，先询问是否创建，并提供监听地址默认值 `127.0.0.1:8080`。
-- Add route 以向导形式收集路由、上游鉴权、下游 Query 参数和初始 token 名称；根据 auth mode 只要求对应的必填凭证。
-- `auto` 向导允许配置可选的上游 Basic 用户名和密码；空密码表示使用 `auth.token`。
+- Add route 以向导形式收集路由、上游鉴权、下游 Query/Header 名称和初始 token 名称；根据 auth mode 只要求对应的必填凭证。
+- `auto` 向导允许配置可选的上游 Query 参数、Header 名称、Basic 用户名和密码；空值表示沿用下游名称，空密码表示使用 `auth.token`。
 - 选择、确认和普通字段使用 `huh` 的 Select、Confirm 和 Input 控件，并支持直接接受默认值。
 - 删除路由和吊销 token 前必须二次确认，默认答案为否。
 - 在真实 TTY 上输入上游 token 或密码时关闭回显；从 pipe 或测试 reader 输入时按普通行读取。

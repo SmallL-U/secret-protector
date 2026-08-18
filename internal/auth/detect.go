@@ -13,6 +13,7 @@ const (
 	SchemeQuery  Scheme = "query"
 	SchemeBearer Scheme = "bearer"
 	SchemeBasic  Scheme = "basic"
+	SchemeHeader Scheme = "header"
 )
 
 var (
@@ -27,9 +28,10 @@ type Credential struct {
 	Token      string
 	Username   string
 	QueryParam string
+	HeaderName string
 }
 
-func Detect(request *http.Request, queryParams []string) (Credential, error) {
+func Detect(request *http.Request, queryParams []string, headerNames []string) (Credential, error) {
 	credentials := make([]Credential, 0, 2)
 	headerCredential, hasHeader, err := detectAuthorizationHeader(request.Header.Values("Authorization"))
 	if err != nil {
@@ -37,6 +39,21 @@ func Detect(request *http.Request, queryParams []string) (Credential, error) {
 	}
 	if hasHeader {
 		credentials = append(credentials, headerCredential)
+	}
+
+	for _, headerName := range headerNames {
+		values := request.Header.Values(headerName)
+		if len(values) == 0 {
+			continue
+		}
+		if len(values) != 1 || values[0] == "" {
+			return Credential{}, ErrMalformed
+		}
+		credentials = append(credentials, Credential{
+			Scheme:     SchemeHeader,
+			Token:      values[0],
+			HeaderName: headerName,
+		})
 	}
 
 	query := request.URL.Query()

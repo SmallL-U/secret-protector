@@ -18,7 +18,9 @@ type routeAddOptions struct {
 	upstreamUsername      string
 	upstreamPassword      string
 	queryParam            string
+	headerName            string
 	downstreamQueryParams []string
+	downstreamHeaders     []string
 	tokenName             string
 }
 
@@ -84,12 +86,14 @@ func newRouteAddCommand(configPath *string) *cobra.Command {
 	flags := command.Flags()
 	flags.StringVar(&options.name, "name", "", "unique route name")
 	flags.StringVar(&options.upstreamURL, "upstream-url", "", "upstream base URL")
-	flags.StringVar(&options.authMode, "auth-mode", "auto", "upstream auth mode: auto, bearer, query, or basic")
-	flags.StringVar(&options.upstreamToken, "upstream-token", "", "upstream token used by auto, bearer, or query mode")
+	flags.StringVar(&options.authMode, "auth-mode", "auto", "upstream auth mode: auto, bearer, query, header, or basic")
+	flags.StringVar(&options.upstreamToken, "upstream-token", "", "upstream token used by auto, bearer, query, or header mode")
 	flags.StringVar(&options.upstreamUsername, "upstream-username", "", "upstream Basic username")
 	flags.StringVar(&options.upstreamPassword, "upstream-password", "", "upstream Basic password")
 	flags.StringVar(&options.queryParam, "query-param", "token", "upstream query parameter name")
+	flags.StringVar(&options.headerName, "header-name", "", "upstream credential header name")
 	flags.StringArrayVar(&options.downstreamQueryParams, "downstream-query-param", nil, "accepted downstream query parameter; repeatable")
+	flags.StringArrayVar(&options.downstreamHeaders, "downstream-header", nil, "accepted downstream credential header; repeatable")
 	flags.StringVar(&options.tokenName, "token-name", "default", "name of the initially issued downstream token")
 
 	return markConfigWrite(command)
@@ -106,10 +110,12 @@ func (options routeAddOptions) route(issuedToken string) config.Route {
 				Username:   options.upstreamUsername,
 				Password:   options.upstreamPassword,
 				QueryParam: options.queryParam,
+				HeaderName: options.headerName,
 			},
 		},
 		Downstream: config.DownstreamConfig{
 			QueryParams: append([]string(nil), options.downstreamQueryParams...),
+			Headers:     append([]string(nil), options.downstreamHeaders...),
 			Tokens: []config.AccessToken{
 				{Name: options.tokenName, Value: issuedToken},
 			},

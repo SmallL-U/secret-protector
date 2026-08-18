@@ -239,9 +239,11 @@ func TestInteractiveManagementWorkflow(t *testing.T) {
 		"",                // default auto auth
 		"upstream-secret", // upstream token
 		"",                // follow downstream query parameter
+		"",                // follow downstream credential header
 		"service-user",    // upstream Basic username
 		"",                // use token as Basic password
 		"",                // default downstream query parameter
+		"",                // no downstream credential header
 		"",                // default initial token name
 		"4",               // issue token
 		"api",
@@ -323,6 +325,7 @@ func TestInvalidInteractiveUpdateReturnsToMenuAndKeepsFile(t *testing.T) {
 		"bearer",
 		"must-not-be-printed",
 		"", // default query parameter
+		"", // no downstream credential header
 		"", // default token name
 		"0",
 	}, "\n") + "\n"

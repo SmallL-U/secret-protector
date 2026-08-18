@@ -8,17 +8,18 @@ import (
 
 func TestDetectSupportedSchemes(t *testing.T) {
 	tests := []struct {
-		name     string
-		prepare  func(*http.Request)
-		params   []string
-		expected Credential
+		name        string
+		prepare     func(*http.Request)
+		queryParams []string
+		headerNames []string
+		expected    Credential
 	}{
 		{
 			name: "query",
 			prepare: func(request *http.Request) {
 				request.URL.RawQuery = "api_key=client-secret"
 			},
-			params: []string{"token", "api_key"},
+			queryParams: []string{"token", "api_key"},
 			expected: Credential{
 				Scheme:     SchemeQuery,
 				Token:      "client-secret",
@@ -30,7 +31,7 @@ func TestDetectSupportedSchemes(t *testing.T) {
 			prepare: func(request *http.Request) {
 				request.Header.Set("Authorization", "Bearer client-secret")
 			},
-			params: []string{"token"},
+			queryParams: []string{"token"},
 			expected: Credential{
 				Scheme: SchemeBearer,
 				Token:  "client-secret",
@@ -41,11 +42,23 @@ func TestDetectSupportedSchemes(t *testing.T) {
 			prepare: func(request *http.Request) {
 				request.SetBasicAuth("alice", "client-secret")
 			},
-			params: []string{"token"},
+			queryParams: []string{"token"},
 			expected: Credential{
 				Scheme:   SchemeBasic,
 				Token:    "client-secret",
 				Username: "alice",
+			},
+		},
+		{
+			name: "custom header",
+			prepare: func(request *http.Request) {
+				request.Header.Set("X-API-Key", "client-secret")
+			},
+			headerNames: []string{"X-API-Key"},
+			expected: Credential{
+				Scheme:     SchemeHeader,
+				Token:      "client-secret",
+				HeaderName: "X-API-Key",
 			},
 		},
 	}
@@ -58,7 +71,7 @@ func TestDetectSupportedSchemes(t *testing.T) {
 			}
 			test.prepare(request)
 
-			actual, err := Detect(request, test.params)
+			actual, err := Detect(request, test.queryParams, test.headerNames)
 			if err != nil {
 				t.Fatalf("Detect() error = %v", err)
 			}
@@ -94,6 +107,22 @@ func TestDetectRejectsInvalidCredentials(t *testing.T) {
 				request.URL.RawQuery = "token=one&api_key=two"
 			},
 			expected: ErrAmbiguous,
+		},
+		{
+			name: "authorization and custom header",
+			prepare: func(request *http.Request) {
+				request.Header.Set("Authorization", "Bearer one")
+				request.Header.Set("X-API-Key", "two")
+			},
+			expected: ErrAmbiguous,
+		},
+		{
+			name: "repeated custom header",
+			prepare: func(request *http.Request) {
+				request.Header.Add("X-API-Key", "one")
+				request.Header.Add("X-API-Key", "two")
+			},
+			expected: ErrMalformed,
 		},
 		{
 			name: "repeated query parameter",
@@ -133,7 +162,7 @@ func TestDetectRejectsInvalidCredentials(t *testing.T) {
 			}
 			test.prepare(request)
 
-			_, err = Detect(request, []string{"token", "api_key"})
+			_, err = Detect(request, []string{"token", "api_key"}, []string{"X-API-Key"})
 			if !errors.Is(err, test.expected) {
 				t.Fatalf("Detect() error = %v, want %v", err, test.expected)
 			}

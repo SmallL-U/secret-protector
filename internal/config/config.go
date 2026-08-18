@@ -58,10 +58,12 @@ type UpstreamAuth struct {
 	Username   string `yaml:"username,omitempty"`
 	Password   string `yaml:"password,omitempty"`
 	QueryParam string `yaml:"query_param,omitempty"`
+	HeaderName string `yaml:"header_name,omitempty"`
 }
 
 type DownstreamConfig struct {
 	QueryParams []string      `yaml:"query_params,omitempty"`
+	Headers     []string      `yaml:"headers,omitempty"`
 	Tokens      []AccessToken `yaml:"tokens,omitempty"`
 }
 
@@ -168,6 +170,7 @@ func Clone(input *Config) *Config {
 	for i := range input.Routes {
 		clone.Routes[i] = input.Routes[i]
 		clone.Routes[i].Downstream.QueryParams = append([]string(nil), input.Routes[i].Downstream.QueryParams...)
+		clone.Routes[i].Downstream.Headers = append([]string(nil), input.Routes[i].Downstream.Headers...)
 		clone.Routes[i].Downstream.Tokens = append([]AccessToken(nil), input.Routes[i].Downstream.Tokens...)
 	}
 
@@ -338,6 +341,13 @@ func validateUpstreamAuth(auth UpstreamAuth) error {
 		if auth.Token == "" {
 			return errors.New("auth.token is required for query mode")
 		}
+	case "header":
+		if auth.Token == "" {
+			return errors.New("auth.token is required for header mode")
+		}
+		if auth.HeaderName == "" {
+			return errors.New("auth.header_name is required for header mode")
+		}
 	case "basic":
 		if auth.Username == "" {
 			return errors.New("auth.username is required for basic mode")
@@ -346,14 +356,18 @@ func validateUpstreamAuth(auth UpstreamAuth) error {
 			return errors.New("auth.password is required for basic mode")
 		}
 	default:
-		return errors.New("auth.mode must be auto, bearer, query, or basic")
+		return errors.New("auth.mode must be auto, bearer, query, header, or basic")
 	}
 
-	if auth.QueryParam == "" {
-		return nil
+	if auth.QueryParam != "" {
+		if err := validateQueryParam(auth.QueryParam); err != nil {
+			return fmt.Errorf("auth.query_param %w", err)
+		}
 	}
-	if err := validateQueryParam(auth.QueryParam); err != nil {
-		return fmt.Errorf("auth.query_param %w", err)
+	if auth.HeaderName != "" {
+		if err := validateCredentialHeaderName(auth.HeaderName); err != nil {
+			return fmt.Errorf("auth.header_name %w", err)
+		}
 	}
 
 	return nil
@@ -369,6 +383,18 @@ func validateDownstream(downstream DownstreamConfig) error {
 			return fmt.Errorf("query_params[%d] is duplicated", i)
 		}
 		params[param] = struct{}{}
+	}
+
+	headers := make(map[string]struct{}, len(downstream.Headers))
+	for i, header := range downstream.Headers {
+		if err := validateCredentialHeaderName(header); err != nil {
+			return fmt.Errorf("headers[%d] %w", i, err)
+		}
+		normalized := strings.ToLower(header)
+		if _, exists := headers[normalized]; exists {
+			return fmt.Errorf("headers[%d] is duplicated", i)
+		}
+		headers[normalized] = struct{}{}
 	}
 
 	names := make(map[string]struct{}, len(downstream.Tokens))
@@ -402,4 +428,35 @@ func validateQueryParam(param string) error {
 	}
 
 	return nil
+}
+
+func validateCredentialHeaderName(name string) error {
+	if name == "" {
+		return errors.New("must not be empty")
+	}
+	if strings.EqualFold(name, "Authorization") || strings.EqualFold(name, "Host") {
+		return errors.New("must not be Authorization or Host")
+	}
+	for _, character := range name {
+		if isHeaderNameCharacter(character) {
+			continue
+		}
+		return errors.New("contains an invalid character")
+	}
+
+	return nil
+}
+
+func isHeaderNameCharacter(character rune) bool {
+	if character >= 'a' && character <= 'z' {
+		return true
+	}
+	if character >= 'A' && character <= 'Z' {
+		return true
+	}
+	if character >= '0' && character <= '9' {
+		return true
+	}
+
+	return strings.ContainsRune("!#$%&'*+-.^_`|~", character)
 }

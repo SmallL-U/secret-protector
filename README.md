@@ -1,6 +1,6 @@
 # Secret Protector
 
-Secret Protector 是一个用 Go 编写的小型反向代理：客户端只持有代理签发的下游 token，代理校验后再把真正的上游凭证注入请求。它支持 Query token、Bearer token 和 Basic Auth，并可让上游方式固定或自动跟随客户端方式。
+Secret Protector 是一个用 Go 编写的小型反向代理：客户端只持有代理签发的下游 token，代理校验后再把真正的上游凭证注入请求。它支持 Query token、Bearer token、Basic Auth 和自定义 HTTP Header，并可让上游方式固定或自动跟随客户端方式。
 
 项目以 [`docs`](docs/README.md) 为权威规格，当前不使用数据库，所有配置保存在 YAML 中。
 
@@ -40,9 +40,12 @@ curl "http://127.0.0.1:8080/users?token=${DOWNSTREAM_TOKEN}"
 
 # Basic：下游 token 放在密码位
 curl -u "client:${DOWNSTREAM_TOKEN}" http://127.0.0.1:8080/users
+
+# 自定义 Header
+curl -H "X-API-Key: ${DOWNSTREAM_TOKEN}" http://127.0.0.1:8080/users
 ```
 
-下游 token 决定请求使用哪条路由，请求 path 会原样转发并拼接到上游 URL 的基础路径；`/healthz` 为代理保留，不会转发。上例固定使用 Bearer 访问上游，因此三种下游请求都会被转换为上游 Bearer。若 `--auth-mode auto`，代理会跟随每次下游请求实际使用的方式。完整配置示例见 [`examples/config.yml`](examples/config.yml)。
+下游 token 决定请求使用哪条路由，请求 path 会原样转发并拼接到上游 URL 的基础路径；`/healthz` 为代理保留，不会转发。上例固定使用 Bearer 访问上游，因此四种下游请求都会被转换为上游 Bearer。若 `--auth-mode auto`，代理会跟随每次下游请求实际使用的方式。完整配置示例见 [`examples/config.yml`](examples/config.yml)。
 
 ## 管理命令
 

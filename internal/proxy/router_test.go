@@ -52,6 +52,7 @@ type observedRequest struct {
 	path          string
 	host          string
 	authorization string
+	credential    string
 	query         url.Values
 	username      string
 	password      string
@@ -110,6 +111,18 @@ func TestRuntimeInjectsConfiguredAuthentication(t *testing.T) {
 			},
 		},
 		{
+			name: "auto follows custom header",
+			auth: config.UpstreamAuth{Mode: "auto", Token: "upstream-token"},
+			prepare: func(request *http.Request) {
+				request.Header.Set("X-API-Key", downstreamSecret)
+			},
+			assert: func(t *testing.T, observed observedRequest) {
+				if observed.credential != "upstream-token" {
+					t.Fatalf("X-API-Key = %q", observed.credential)
+				}
+			},
+		},
+		{
 			name: "explicit bearer replaces query credential",
 			auth: config.UpstreamAuth{Mode: "bearer", Token: "upstream-token"},
 			prepare: func(request *http.Request) {
@@ -151,6 +164,22 @@ func TestRuntimeInjectsConfiguredAuthentication(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "explicit header replaces custom header credential",
+			auth: config.UpstreamAuth{
+				Mode:       "header",
+				Token:      "upstream-token",
+				HeaderName: "X-API-Key",
+			},
+			prepare: func(request *http.Request) {
+				request.Header.Set("X-API-Key", downstreamSecret)
+			},
+			assert: func(t *testing.T, observed observedRequest) {
+				if observed.credential != "upstream-token" {
+					t.Fatalf("X-API-Key = %q", observed.credential)
+				}
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -162,6 +191,7 @@ func TestRuntimeInjectsConfiguredAuthentication(t *testing.T) {
 					path:          request.URL.Path,
 					host:          request.Host,
 					authorization: request.Header.Get("Authorization"),
+					credential:    request.Header.Get("X-API-Key"),
 					query:         request.URL.Query(),
 					username:      username,
 					password:      password,
@@ -191,7 +221,7 @@ func TestRuntimeInjectsConfiguredAuthentication(t *testing.T) {
 			if actual.host != strings.TrimPrefix(upstream.URL, "http://") {
 				t.Fatalf("host = %q", actual.host)
 			}
-			if actual.authorization == "Bearer "+downstreamSecret || actual.password == downstreamSecret {
+			if actual.authorization == "Bearer "+downstreamSecret || actual.password == downstreamSecret || actual.credential == downstreamSecret {
 				t.Fatal("downstream credential leaked upstream")
 			}
 			for _, values := range actual.query {
@@ -466,6 +496,7 @@ func proxyConfig(upstreamURL string, authConfig config.UpstreamAuth) *config.Con
 			},
 			Downstream: config.DownstreamConfig{
 				QueryParams: []string{"token", "client_key"},
+				Headers:     []string{"X-API-Key"},
 				Tokens: []config.AccessToken{
 					{Name: "client", Value: downstreamSecret},
 				},

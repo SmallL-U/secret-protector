@@ -222,6 +222,7 @@ func (manager *interactiveManager) addRoute() error {
 			formOption{label: "Follow downstream automatically", value: "auto"},
 			formOption{label: "Bearer token", value: "bearer"},
 			formOption{label: "Query parameter", value: "query"},
+			formOption{label: "HTTP header", value: "header"},
 			formOption{label: "Basic auth", value: "basic"},
 		),
 	); err != nil {
@@ -232,14 +233,17 @@ func (manager *interactiveManager) addRoute() error {
 	}
 
 	queryParams := "token"
+	headers := ""
 	options.tokenName = "default"
 	if err := manager.runForm(
 		requiredInput("Downstream query parameters (comma-separated)", &queryParams),
+		huh.NewInput().Title("Downstream credential headers (comma-separated, blank for none)").Value(&headers),
 		requiredInput("Initial downstream token name", &options.tokenName),
 	); err != nil {
 		return err
 	}
 	options.downstreamQueryParams = splitCommaSeparated(queryParams)
+	options.downstreamHeaders = splitCommaSeparated(headers)
 
 	issuedToken, err := addRoute(manager.filename, options)
 	if err != nil {
@@ -261,6 +265,8 @@ func (manager *interactiveManager) promptUpstreamAuth(options *routeAddOptions) 
 		return manager.runForm(manager.requiredSecretInput("Upstream token", &options.upstreamToken))
 	case "query":
 		return manager.promptQueryAuth(options)
+	case "header":
+		return manager.promptHeaderAuth(options)
 	case "basic":
 		return manager.promptBasicAuth(options)
 	default:
@@ -272,6 +278,7 @@ func (manager *interactiveManager) promptAutoAuth(options *routeAddOptions) erro
 	return manager.runForm(
 		manager.requiredSecretInput("Upstream token", &options.upstreamToken),
 		huh.NewInput().Title("Upstream query parameter (blank follows downstream)").Value(&options.queryParam),
+		huh.NewInput().Title("Upstream credential header (blank follows downstream)").Value(&options.headerName),
 		huh.NewInput().Title("Upstream Basic username (blank follows downstream)").Value(&options.upstreamUsername),
 		manager.secretInput("Upstream Basic password (blank uses token)", &options.upstreamPassword),
 	)
@@ -282,6 +289,14 @@ func (manager *interactiveManager) promptQueryAuth(options *routeAddOptions) err
 	return manager.runForm(
 		manager.requiredSecretInput("Upstream token", &options.upstreamToken),
 		requiredInput("Upstream query parameter", &options.queryParam),
+	)
+}
+
+func (manager *interactiveManager) promptHeaderAuth(options *routeAddOptions) error {
+	options.headerName = "X-API-Key"
+	return manager.runForm(
+		manager.requiredSecretInput("Upstream token", &options.upstreamToken),
+		requiredInput("Upstream credential header", &options.headerName),
 	)
 }
 

@@ -36,41 +36,46 @@ Secret Protector 是一个小型 HTTP 反向代理。它让调用方只持有代
 
 ## 3. 下游鉴权自动识别
 
-每条路由都支持以下三种方式，不需要客户端额外声明：
+每条路由都支持以下四种方式，不需要客户端额外声明：
 
 | 方式 | 下游请求格式 | 用作下游 token 的值 |
 | --- | --- | --- |
 | Query | `?token=<value>`；参数名由路由配置 | 参数值 |
 | Bearer | `Authorization: Bearer <value>` | Bearer 值 |
 | Basic | HTTP Basic Auth | 密码；用户名只作为 Basic 用户名元数据 |
+| Header | `X-API-Key: <value>`；Header 名称由路由配置 | Header 值 |
 
 规则：
 
 - Query 参数默认只识别 `token`，可为路由配置多个候选参数名。
 - 代理汇总所有路由的候选 Query 参数进行凭证识别；token 命中路由后，该参数名还必须属于该路由。
-- 同一个请求只能出现一份代理凭证。Header 与 Query 同时存在、多个候选 Query 参数同时存在、或同一 Query 参数有多个值，均视为歧义并返回 `400`。
+- 自定义 Header 默认不启用，可为路由配置多个候选名称；匹配不区分大小写，`Authorization` 和 `Host` 不能作为自定义凭证 Header。
+- 代理汇总所有路由的候选 Header 名称进行凭证识别；token 命中路由后，该 Header 名称还必须属于该路由。
+- 同一个请求只能出现一份代理凭证。Authorization、自定义 Header 与 Query 同时存在，多个候选 Header/Query 同时存在，或同一候选项有多个值，均视为歧义并返回 `400`。
 - 非 Bearer/Basic 的 `Authorization` 方式返回 `400`，不会透传。
-- 空 Bearer、空 Basic 密码和空 Query 值均为格式错误。
+- 空 Bearer、空 Basic 密码、空 Query 值和空自定义 Header 值均为格式错误。
 - Basic 客户端示例为 `curl -u any-user:<downstream-token>`。
 
 ## 4. 上游鉴权注入策略
 
-上游 `auth.mode` 支持 `auto`、`bearer`、`query`、`basic`。`follow` 是 `auto` 的兼容别名，读取配置后统一规范为 `auto`。未设置时默认 `auto`。
+上游 `auth.mode` 支持 `auto`、`bearer`、`query`、`header`、`basic`。`follow` 是 `auto` 的兼容别名，读取配置后统一规范为 `auto`。未设置时默认 `auto`。
 
 | mode | 注入行为 |
 | --- | --- |
 | `bearer` | 写入 `Authorization: Bearer <auth.token>` |
 | `query` | 写入 `<auth.query_param>=<auth.token>`；参数名默认 `token` |
+| `header` | 写入 `<auth.header_name>: <auth.token>` |
 | `basic` | 使用 `auth.username` 与 `auth.password` 写入 HTTP Basic Auth |
-| `auto` | 跟随本次下游请求实际使用的 Query/Bearer/Basic 方式 |
+| `auto` | 跟随本次下游请求实际使用的 Query/Bearer/Header/Basic 方式 |
 
 `auto` 的细则：
 
 - 跟随 Bearer 时使用 `auth.token`。
 - 跟随 Query 时使用 `auth.query_param`；若未设置，则沿用下游实际参数名。值使用 `auth.token`。
+- 跟随 Header 时使用 `auth.header_name`；若未设置，则沿用下游实际 Header 名称。值使用 `auth.token`。
 - 跟随 Basic 时，用户名优先使用 `auth.username`，否则沿用下游 Basic 用户名；密码优先使用 `auth.password`，否则使用 `auth.token`。
 
-所有策略都必须先删除下游 `Authorization` 或实际承载 token 的 Query 参数，再注入上游凭证。
+所有策略都必须先删除下游 `Authorization` 或实际承载 token 的 Query/Header，再注入上游凭证。
 
 鉴权注入必须通过独立策略接口实现，使新增方式无需修改路由认证与转发主流程。
 
@@ -131,8 +136,8 @@ Secret Protector 是一个小型 HTTP 反向代理。它让调用方只持有代
 
 自动化测试至少覆盖：
 
-1. Query、Bearer、Basic 三种下游识别与 token 校验。
-2. 四种上游 mode，包括 `auto` 对三种下游方式的跟随。
+1. Query、Bearer、Header、Basic 四种下游识别与 token 校验。
+2. 五种上游 mode，包括 `auto` 对四种下游方式的跟随。
 3. 下游凭证不会泄漏，上游收到的是配置凭证。
 4. 下游 token 选择路由，请求 path 原样转发且保留百分号编码语义。
 5. `/healthz` 在有有效快照时返回 `200`，无有效快照时返回 `503`，且不需要鉴权、不能转发到上游。

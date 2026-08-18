@@ -40,6 +40,19 @@ func TestAutoInjectorFollowsDownstreamScheme(t *testing.T) {
 			},
 		},
 		{
+			name:   "header follows header name",
+			config: config.UpstreamAuth{Mode: "auto", Token: "upstream-token"},
+			downstream: Credential{
+				Scheme:     SchemeHeader,
+				HeaderName: "X-API-Key",
+			},
+			assert: func(t *testing.T, request *http.Request) {
+				if actual := request.Header.Get("X-API-Key"); actual != "upstream-token" {
+					t.Fatalf("X-API-Key = %q", actual)
+				}
+			},
+		},
+		{
 			name: "basic uses configured overrides",
 			config: config.UpstreamAuth{
 				Mode:     "auto",
@@ -112,6 +125,19 @@ func TestExplicitInjectors(t *testing.T) {
 			assert: func(t *testing.T, request *http.Request) {
 				if request.URL.Query().Get("key") != "upstream-token" {
 					t.Fatal("query token was not injected")
+				}
+			},
+		},
+		{
+			name: "header",
+			config: config.UpstreamAuth{
+				Mode:       "header",
+				Token:      "upstream-token",
+				HeaderName: "X-API-Key",
+			},
+			assert: func(t *testing.T, request *http.Request) {
+				if request.Header.Get("X-API-Key") != "upstream-token" {
+					t.Fatal("header token was not injected")
 				}
 			},
 		},

@@ -145,6 +145,24 @@ func TestPrepareRejectsInvalidRoutes(t *testing.T) {
 			},
 		},
 		{
+			name: "header mode without header name",
+			mutate: func(cfg *Config) {
+				cfg.Routes[0].Upstream.Auth.Mode = "header"
+			},
+		},
+		{
+			name: "invalid downstream header name",
+			mutate: func(cfg *Config) {
+				cfg.Routes[0].Downstream.Headers = []string{"Bad Header"}
+			},
+		},
+		{
+			name: "duplicate downstream header name",
+			mutate: func(cfg *Config) {
+				cfg.Routes[0].Downstream.Headers = []string{"X-API-Key", "x-api-key"}
+			},
+		},
+		{
 			name: "duplicate downstream token",
 			mutate: func(cfg *Config) {
 				cfg.Routes[0].Downstream.Tokens = append(cfg.Routes[0].Downstream.Tokens, cfg.Routes[0].Downstream.Tokens[0])
@@ -168,6 +186,21 @@ func TestPrepareRejectsInvalidRoutes(t *testing.T) {
 				t.Fatal("Prepare() succeeded, want error")
 			}
 		})
+	}
+}
+
+func TestPrepareSupportsCredentialHeaders(t *testing.T) {
+	cfg := validConfig()
+	cfg.Routes[0].Upstream.Auth.Mode = "header"
+	cfg.Routes[0].Upstream.Auth.HeaderName = "X-API-Key"
+	cfg.Routes[0].Downstream.Headers = []string{"X-API-Key"}
+
+	prepared, err := Prepare(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Routes[0].Upstream.Auth.HeaderName != "X-API-Key" {
+		t.Fatalf("HeaderName = %q", prepared.Routes[0].Upstream.Auth.HeaderName)
 	}
 }
 

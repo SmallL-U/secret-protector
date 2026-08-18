@@ -21,6 +21,7 @@ routes:
       auth:
         mode: auto
         token: replace-with-real-upstream-secret
+        header_name: X-API-Key
         username: service-user
         password: optional-basic-password
         query_param: api_key
@@ -28,6 +29,8 @@ routes:
       query_params:
         - token
         - api_key
+      headers:
+        - X-API-Key
       tokens:
         - name: local-dev
           value: sp_replace_with_cli_generated_value
@@ -66,17 +69,19 @@ routes:
 | 字段 | 必填 | 约束 |
 | --- | --- | --- |
 | `url` | 是 | 绝对 `http`/`https` URL，不允许 userinfo 和 fragment |
-| `auth.mode` | 否 | `auto`（默认）、`follow`、`bearer`、`query`、`basic` |
-| `auth.token` | 视 mode | `auto`、`bearer`、`query` 必填 |
+| `auth.mode` | 否 | `auto`（默认）、`follow`、`bearer`、`query`、`header`、`basic` |
+| `auth.token` | 视 mode | `auto`、`bearer`、`query`、`header` 必填 |
 | `auth.username` | 视 mode | `basic` 必填；`auto` 可选 |
 | `auth.password` | 视 mode | `basic` 必填；`auto` 可选 |
 | `auth.query_param` | 否 | 非空合法 Query key；`query` 默认 `token`，`auto` 缺省时沿用下游参数名 |
+| `auth.header_name` | 视 mode | `header` 必填；必须是合法 Header 名称且不能为 `Authorization`/`Host`；`auto` 缺省时沿用下游 Header 名称 |
 
 ### `downstream`
 
 | 字段 | 默认值/约束 |
 | --- | --- |
 | `query_params` | 默认 `[token]`；每项非空且不得重复 |
+| `headers` | 默认空；每项是合法 Header 名称且不得重复（不区分大小写），不能为 `Authorization`/`Host` |
 | `tokens` | 可为空；每项的 `name` 和 `value` 非空，名称在同一路由内唯一，值在所有路由间全局唯一 |
 
 下游 token 用于选择路由，请求 path 不参与路由选择。空 token 列表会让路由拒绝所有客户端，但仍是合法配置，便于紧急吊销。`/healthz` 始终由代理保留，不能转发给任何路由。

@@ -20,11 +20,13 @@ type credentialContextKey struct{}
 type Router struct {
 	routes      []*route
 	queryParams []string
+	headerNames []string
 }
 
 type route struct {
 	name        string
 	queryParams []string
+	headerNames []string
 	tokenHashes [][sha256.Size]byte
 	proxy       *httputil.ReverseProxy
 }
@@ -39,7 +41,9 @@ func NewRouter(cfg *config.Config, logger *slog.Logger) (*Router, error) {
 
 	routes := make([]*route, 0, len(cfg.Routes))
 	queryParams := make([]string, 0)
+	headerNames := make([]string, 0)
 	knownQueryParams := make(map[string]struct{})
+	knownHeaderNames := make(map[string]struct{})
 	for i := range cfg.Routes {
 		compiled, err := newRoute(cfg.Routes[i], logger)
 		if err != nil {
@@ -53,13 +57,21 @@ func NewRouter(cfg *config.Config, logger *slog.Logger) (*Router, error) {
 			knownQueryParams[param] = struct{}{}
 			queryParams = append(queryParams, param)
 		}
+		for _, name := range compiled.headerNames {
+			canonical := http.CanonicalHeaderKey(name)
+			if _, exists := knownHeaderNames[canonical]; exists {
+				continue
+			}
+			knownHeaderNames[canonical] = struct{}{}
+			headerNames = append(headerNames, canonical)
+		}
 	}
 
-	return &Router{routes: routes, queryParams: queryParams}, nil
+	return &Router{routes: routes, queryParams: queryParams, headerNames: headerNames}, nil
 }
 
 func (router *Router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	credential, err := auth.Detect(request, router.queryParams)
+	credential, err := auth.Detect(request, router.queryParams, router.headerNames)
 	if errors.Is(err, auth.ErrMissing) {
 		writeUnauthorized(writer)
 		return
@@ -92,6 +104,7 @@ func newRoute(routeConfig config.Route, logger *slog.Logger) (*route, error) {
 	compiled := &route{
 		name:        routeConfig.Name,
 		queryParams: append([]string(nil), routeConfig.Downstream.QueryParams...),
+		headerNames: append([]string(nil), routeConfig.Downstream.Headers...),
 		tokenHashes: make([][sha256.Size]byte, len(routeConfig.Downstream.Tokens)),
 	}
 	for i, accessToken := range routeConfig.Downstream.Tokens {
@@ -107,6 +120,9 @@ func newRoute(routeConfig config.Route, logger *slog.Logger) (*route, error) {
 			query := request.URL.Query()
 			query.Del(downstream.QueryParam)
 			request.URL.RawQuery = query.Encode()
+		}
+		if downstream.Scheme == auth.SchemeHeader {
+			request.Header.Del(downstream.HeaderName)
 		}
 
 		baseDirector(request)
@@ -138,6 +154,9 @@ func (router *Router) matchCredential(credential auth.Credential) *route {
 	if credential.Scheme == auth.SchemeQuery && !matched.acceptsQueryParam(credential.QueryParam) {
 		return nil
 	}
+	if credential.Scheme == auth.SchemeHeader && !matched.acceptsHeaderName(credential.HeaderName) {
+		return nil
+	}
 
 	return matched
 }
@@ -155,6 +174,17 @@ func (route *route) accepts(candidate string) bool {
 func (route *route) acceptsQueryParam(candidate string) bool {
 	for _, expected := range route.queryParams {
 		if candidate == expected {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (route *route) acceptsHeaderName(candidate string) bool {
+	canonical := http.CanonicalHeaderKey(candidate)
+	for _, expected := range route.headerNames {
+		if canonical == http.CanonicalHeaderKey(expected) {
 			return true
 		}
 	}
