@@ -1,6 +1,6 @@
 # Secret Protector
 
-Secret Protector 是一个用 Go 编写的小型反向代理：客户端只拿到代理签发的短 token，代理校验后再把真正的上游凭证注入请求。它支持 Query token、Bearer token 和 Basic Auth，并可让上游方式固定或自动跟随客户端方式。
+Secret Protector 是一个用 Go 编写的小型反向代理：客户端只持有代理签发的下游 token，代理校验后再把真正的上游凭证注入请求。它支持 Query token、Bearer token 和 Basic Auth，并可让上游方式固定或自动跟随客户端方式。
 
 项目以 [`docs`](docs/README.md) 为权威规格，当前不使用数据库，所有配置保存在 YAML 中。
 

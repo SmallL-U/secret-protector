@@ -2,7 +2,7 @@
 
 ## 1. 目标与术语
 
-Secret Protector 是一个小型 HTTP 反向代理。它让调用方只持有代理签发的短 token，并在请求转发时将其替换为真正的上游凭证。
+Secret Protector 是一个小型 HTTP 反向代理。它让调用方只持有代理签发的下游 token，并在请求转发时将其替换为真正的上游凭证。
 
 - **下游（client）**：调用 Secret Protector 的客户端。
 - **代理（proxy）**：Secret Protector 自身。
