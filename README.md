@@ -90,7 +90,7 @@ docker run --rm \
 
 挂载整个配置目录可以让宿主机上的原子配置更新继续被容器内的热重载检测到。配置以只读方式挂载，容器内的 root 用户可以读取 CLI 以 `0600` 权限创建的文件。
 
-GitHub Actions 会在每次 push 和 pull request 中执行 `make verify`、race test，并构建和启动检查 Docker 镜像。push 事件通过 `DOCKER_USERNAME` 和 `DOCKER_PASSWORD` 登录 Docker Hub，将镜像发布到 `smalllu/secret-protector`；默认分支额外发布 `latest`，同时发布分支或 Git tag 及 `sha-*` 标签。pull request 只构建检查，不读取发布凭证或推送镜像。`DOCKER_PASSWORD` 应保存 Docker Hub access token，而不是账户密码。
+GitHub Actions 会在每次 push 和 pull request 中执行 `make verify`、race test，并构建和启动检查 Docker 镜像。push 事件通过 `DOCKER_USERNAME` 和 `DOCKER_PASSWORD` 登录 Docker Hub，将 `linux/amd64` 与 `linux/arm64/v8` 镜像发布到 `smalllu/secret-protector`；默认分支额外发布 `latest`，同时发布分支或 Git tag。pull request 只构建检查，不读取发布凭证或推送镜像。`DOCKER_PASSWORD` 应保存 Docker Hub access token，而不是账户密码。
 
 ## 开发
 
