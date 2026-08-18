@@ -3,5 +3,4 @@
 /docker-config/
 /.idea/
 /secret-protector
-/config.yml
 *.tmp
